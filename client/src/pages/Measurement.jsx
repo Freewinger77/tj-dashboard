@@ -222,7 +222,9 @@ function ValueTab({
         <Kpi
           label="Return multiple"
           value={h.multiplier != null ? `${fmt(h.multiplier, 2)}×` : '—'}
-          hint={`${fmt(h.bookings_observed)} observed vs ${fmt(h.bookings_expected, 1)} expected`}
+          hint={`${fmt(h.bookings_observed)} observed vs ${fmt(h.bookings_expected, 1)} expected${
+            h.lift_pp != null ? ` · +${fmt(h.lift_pp, 1)}pp` : ''
+          }`}
         />
         <Kpi
           label="Lift vs TJ reminders"

@@ -614,11 +614,13 @@ export default function TodayPage() {
                         lineHeight: 1.45,
                       }}
                     >
-                      Registration-matched after outreach. Incremental lift (excl. WA outage
-                      lag) is <b style={{ color: '#000' }}>{fmt(incremental, 0)}</b>
+                      Registration-matched after outreach. Standardised incremental (due_soon,
+                      observable window) is{' '}
+                      <b style={{ color: '#000' }}>{fmt(incremental, 0)}</b>
                       {headline?.multiplier != null
                         ? ` · ${Number(headline.multiplier).toFixed(2)}× control`
                         : ''}
+                      {headline?.lift_pp != null ? ` · +${Number(headline.lift_pp).toFixed(1)}pp` : ''}
                       .
                     </div>
                   </div>
@@ -1031,10 +1033,11 @@ export default function TodayPage() {
                 {fmt(attributedTotal, 0)}
               </div>
               <div style={{ fontSize: 12, color: 'rgba(0,0,0,.55)', marginTop: 8, lineHeight: 1.45 }}>
-                Incremental lift (excl. outage lag) {fmt(incremental, 0)}
+                Incremental {fmt(incremental, 0)}
                 {headline?.multiplier != null
                   ? ` · ${Number(headline.multiplier).toFixed(2)}× control`
                   : ''}
+                {headline?.lift_pp != null ? ` · +${Number(headline.lift_pp).toFixed(1)}pp` : ''}
                 , from {fmt(headline?.leads_contacted)} contacted.
               </div>
               <Link

@@ -7,15 +7,6 @@ const STALE_CAPTURE_DAYS = 10;
 
 const KNOWN_BAD_WEEKS = new Set(['2026-07-06', '2026-07-13']);
 
-/**
- * Full WhatsApp outbound silence (Helsinki calendar days, inclusive).
- * During this window attributed detections continued as a lagged "claim" tail
- * at ~half the active rate — different dynamics than active outreach. Those
- * treated bookings must not inflate the all-time uplift multiplier.
- * @see reports/tj-whatsapp-pause-impact.md
- */
-export const WA_OUTAGE = { start: '2026-06-23', end: '2026-07-26' };
-
 let cache = { at: 0, payload: null, promise: null };
 
 function parseDate(value) {
@@ -33,6 +24,7 @@ function daysBetween(isoA, isoB) {
   return Math.round((a - b) / 86_400_000);
 }
 
+/** Deadline bins from the uplift calc spec (lead_type × bin strata). */
 export function deadlineBin(days) {
   if (days == null || Number.isNaN(days)) return null;
   if (days >= 0 && days <= 10) return 'd00_10';
@@ -41,9 +33,11 @@ export function deadlineBin(days) {
   if (days >= 31 && days <= 45) return 'd31_45';
   if (days >= 46 && days <= 60) return 'd46_60';
   if (days >= 61 && days <= 90) return 'd61_90';
-  if (days >= -90 && days <= -1) return 'overdue_0_90';
+  if (days >= -30 && days <= -1) return 'overdue_0_30';
+  if (days >= -90 && days <= -31) return 'overdue_31_90';
   if (days >= -365 && days <= -91) return 'overdue_91_365';
   if (days < -365) return 'overdue_365_plus';
+  // >90 days until deadline: outside the published strata
   return null;
 }
 
@@ -219,6 +213,15 @@ export function buildCaptureCoverage(snapshots) {
     );
 
   const incomplete = weeks.filter((w) => !w.is_complete);
+
+  // Observability window start = earliest snapshot first_seen_at (capture begin).
+  // Leads with next_inspection_date before this have structurally unobservable outcomes.
+  let observableFrom = null;
+  for (const s of snapshots) {
+    const seen = parseDate(s.first_seen_at);
+    if (seen && (!observableFrom || seen < observableFrom)) observableFrom = seen;
+  }
+
   return {
     weeks,
     incomplete_count: incomplete.length,
@@ -227,31 +230,17 @@ export function buildCaptureCoverage(snapshots) {
     days_since_capture: lastCaptureAt
       ? Math.floor((Date.now() - lastCaptureAt.getTime()) / 86_400_000)
       : null,
+    observable_from: observableFrom,
   };
 }
 
-export function isInWaOutage(iso) {
-  const d = parseDate(iso);
-  return Boolean(d && d >= WA_OUTAGE.start && d <= WA_OUTAGE.end);
-}
-
 /**
- * Drop treated bookings whose booked_at falls inside the WA outage.
- * Control/holdout organic bookings in the same window stay — only the
- * messaged lag/"claim" tail had the different rate.
+ * Build measurement leads.
+ * Eligibility uses lead attributes only (never contacted_at/booked_at/status as filters).
+ * Arm assignment is post-eligibility. Observability window is a lead-attribute filter
+ * on next_inspection_date vs capture start — applied identically to both arms.
  */
-export function applyOutageBookingAdjustment(leads) {
-  let excluded = 0;
-  const next = leads.map((l) => {
-    if (l.arm !== 'treated' || !l.booked) return l;
-    if (!isInWaOutage(l.booked_at)) return l;
-    excluded += 1;
-    return { ...l, booked: false, booked_excluded_outage: true };
-  });
-  return { leads: next, excluded };
-}
-
-export function buildMeasurementLeads(csvLeads, holdoutIds) {
+export function buildMeasurementLeads(csvLeads, holdoutIds, { observableFrom = null } = {}) {
   const out = [];
   for (const l of csvLeads) {
     if (!l.normalized_phone) continue;
@@ -259,6 +248,8 @@ export function buildMeasurementLeads(csvLeads, holdoutIds) {
     const next = parseDate(l.next_inspection_date);
     const imported = parseDate(l.imported_at);
     if (!next || !imported) continue;
+    // Step 3 — observability window (both arms). Do not filter on booked_at timing.
+    if (observableFrom && next < observableFrom) continue;
     const days = daysBetween(next, imported);
     const bin = deadlineBin(days);
     if (!bin) continue;
@@ -359,11 +350,14 @@ export function computeStandardizedUplift(leads, { byStation = false, onlyRemind
   }
 
   const incremental = bookings_observed - bookings_expected;
+  const multiplier = bookings_expected > 0 ? bookings_observed / bookings_expected : null;
+  const lift_pp = leads_contacted > 0 ? (incremental / leads_contacted) * 100 : null;
   return {
     bookings_observed,
     bookings_expected,
     bookings_incremental: incremental,
-    multiplier: bookings_expected > 0 ? bookings_observed / bookings_expected : null,
+    multiplier,
+    lift_pp,
     leads_contacted,
     bins_used: used.length,
     bins_skipped: skipped.length,
@@ -377,7 +371,14 @@ function bootstrapIncremental(leads, samples = BOOTSTRAP_SAMPLES, seed = 42) {
   // usable bin. Far cheaper than cloning 35k lead rows 1000×, and matches
   // the standardised estimator's stratification.
   const bins = aggregateBins(leads).filter((b) => b.n_treated > 0 && b.n_control >= MIN_CONTROL);
-  if (!bins.length) return { samples: 0, ci95: [null, null], mean: null };
+  if (!bins.length) {
+    return {
+      samples: 0,
+      ci95: [null, null],
+      ci95_multiplier: [null, null],
+      mean: null,
+    };
+  }
 
   const rand = mulberry32(seed);
   const resampleCount = (n, p) => {
@@ -386,7 +387,8 @@ function bootstrapIncremental(leads, samples = BOOTSTRAP_SAMPLES, seed = 42) {
     return k;
   };
 
-  const values = [];
+  const incrementalValues = [];
+  const multiplierValues = [];
   for (let s = 0; s < samples; s++) {
     let obs = 0;
     let exp = 0;
@@ -399,13 +401,44 @@ function bootstrapIncremental(leads, samples = BOOTSTRAP_SAMPLES, seed = 42) {
       obs += bkT;
       exp += b.n_treated * controlRate;
     }
-    values.push(obs - exp);
+    incrementalValues.push(obs - exp);
+    if (exp > 0) multiplierValues.push(obs / exp);
   }
-  values.sort((a, b) => a - b);
+  incrementalValues.sort((a, b) => a - b);
+  multiplierValues.sort((a, b) => a - b);
   return {
     samples,
-    mean: mean(values),
-    ci95: [quantile(values, 0.025), quantile(values, 0.975)],
+    mean: mean(incrementalValues),
+    ci95: [quantile(incrementalValues, 0.025), quantile(incrementalValues, 0.975)],
+    ci95_multiplier: [
+      quantile(multiplierValues, 0.025),
+      quantile(multiplierValues, 0.975),
+    ],
+  };
+}
+
+function serializeUplift(u, bootstrap = null) {
+  const treatedRate = u.leads_contacted ? u.bookings_observed / u.leads_contacted : 0;
+  return {
+    bookings_observed: u.bookings_observed,
+    bookings_expected: Number(u.bookings_expected.toFixed(2)),
+    bookings_incremental: Number(u.bookings_incremental.toFixed(2)),
+    multiplier: u.multiplier != null ? Number(u.multiplier.toFixed(3)) : null,
+    lift_pp: u.lift_pp != null ? Number(u.lift_pp.toFixed(1)) : null,
+    leads_contacted: u.leads_contacted,
+    treated_rate: Number(treatedRate.toFixed(4)),
+    bins_used: u.bins_used,
+    bins_skipped: u.bins_skipped,
+    skipped_bins: u.skipped,
+    ...(bootstrap
+      ? {
+          ci95_incremental: bootstrap.ci95.map((v) => (v == null ? null : Number(v.toFixed(1)))),
+          ci95_multiplier: (bootstrap.ci95_multiplier || [null, null]).map((v) =>
+            v == null ? null : Number(v.toFixed(2))
+          ),
+          bootstrap_samples: bootstrap.samples,
+        }
+      : {}),
   };
 }
 
@@ -469,13 +502,21 @@ export async function getMeasurementReport({ force = false } = {}) {
     ]);
 
     const coverage = buildCaptureCoverage(snapshots);
-    const rawLeads = buildMeasurementLeads(csvLeads, holdout.ids);
-    const { leads, excluded: outageExcludedTreatedBookings } = applyOutageBookingAdjustment(rawLeads);
+    const observableFrom = coverage.observable_from;
 
-    const headline = computeStandardizedUplift(leads);
+    // All reachable (no observability filter) — audit / exclusion counts only.
+    const allReachable = buildMeasurementLeads(csvLeads, holdout.ids);
+    // Clean window: next_inspection_date >= capture start (both arms).
+    const observableLeads = buildMeasurementLeads(csvLeads, holdout.ids, { observableFrom });
+    // Publishable headline is due_soon inside the observable window.
+    // passed is largely removed by the window; report separately as partially unobserved.
+    const cleanDueSoon = observableLeads.filter((l) => l.lead_type === 'due_soon');
+    const passedObservable = observableLeads.filter((l) => l.lead_type === 'passed');
+
+    const headline = computeStandardizedUplift(cleanDueSoon);
     const byType = {
-      due_soon: computeStandardizedUplift(leads.filter((l) => l.lead_type === 'due_soon')),
-      passed: computeStandardizedUplift(leads.filter((l) => l.lead_type === 'passed')),
+      due_soon: headline,
+      passed: computeStandardizedUplift(passedObservable),
     };
     const rollupStations = (usedBins) => {
       const stationMap = new Map();
@@ -497,59 +538,56 @@ export async function getMeasurementReport({ force = false } = {}) {
       return stationMap;
     };
 
-    const byStationRaw = computeStandardizedUplift(leads, { byStation: true });
-    const byStationDueSoonRaw = computeStandardizedUplift(
-      leads.filter((l) => l.lead_type === 'due_soon'),
-      { byStation: true }
-    );
-    const stationMap = rollupStations(byStationRaw.used);
+    // Station rollup matches the headline population (clean due_soon).
+    const byStationDueSoonRaw = computeStandardizedUplift(cleanDueSoon, { byStation: true });
     const dueSoonStationMap = rollupStations(byStationDueSoonRaw.used);
 
-    const by_station = [...stationMap.values()].map((r) => {
-      const due = dueSoonStationMap.get(r.station_name);
-      return {
-        ...r,
-        bookings_incremental: r.bookings_observed - r.bookings_expected,
-        multiplier: r.bookings_expected > 0 ? r.bookings_observed / r.bookings_expected : null,
-        treated_rate: r.leads_contacted ? r.bookings_observed / r.leads_contacted : 0,
-        // Due-soon-only — comparable to the ~27% attributed due-soon conversion.
-        due_soon_leads_contacted: due?.leads_contacted || 0,
-        due_soon_bookings_observed: due?.bookings_observed || 0,
-        due_soon_treated_rate: due?.leads_contacted
-          ? due.bookings_observed / due.leads_contacted
-          : null,
-      };
-    });
+    const by_station = [...dueSoonStationMap.values()].map((r) => ({
+      ...r,
+      bookings_incremental: r.bookings_observed - r.bookings_expected,
+      multiplier: r.bookings_expected > 0 ? r.bookings_observed / r.bookings_expected : null,
+      treated_rate: r.leads_contacted ? r.bookings_observed / r.leads_contacted : 0,
+      due_soon_leads_contacted: r.leads_contacted,
+      due_soon_bookings_observed: r.bookings_observed,
+      due_soon_treated_rate: r.leads_contacted ? r.bookings_observed / r.leads_contacted : null,
+    }));
 
-    const reminderLift = computeStandardizedUplift(leads, { onlyReminder: true });
-    const recoveredLapsed = leads.filter(
+    const reminderLift = computeStandardizedUplift(cleanDueSoon, { onlyReminder: true });
+    const recoveredLapsed = allReachable.filter(
       (l) => l.arm === 'treated' && l.booked && l.deadline_bin === 'overdue_365_plus'
     ).length;
 
-    const treatedBookedDays = leads
+    const treatedBookedDays = cleanDueSoon
       .filter((l) => l.arm === 'treated' && l.booked)
       .map((l) => l.days_to_deadline_at_ref);
-    const controlBookedDays = leads
+    const controlBookedDays = cleanDueSoon
       .filter((l) => (l.arm === 'control' || l.arm === 'holdout') && l.booked)
       .map((l) => l.days_to_deadline_at_ref);
 
-    const bootstrap = bootstrapIncremental(leads, BOOTSTRAP_SAMPLES, 42);
+    const bootstrap = bootstrapIncremental(cleanDueSoon, BOOTSTRAP_SAMPLES, 42);
 
-    const nTreated = leads.filter((l) => l.arm === 'treated').length;
-    const nControl = leads.filter((l) => l.arm === 'control').length;
-    const nHoldout = leads.filter((l) => l.arm === 'holdout').length;
-    const remainingEligible = leads.filter((l) => l.arm === 'control' || l.arm === 'holdout').length;
-    const remainingDueSoon = leads.filter(
-      (l) => (l.arm === 'control' || l.arm === 'holdout') && l.lead_type === 'due_soon'
+    const nTreated = cleanDueSoon.filter((l) => l.arm === 'treated').length;
+    const nControl = cleanDueSoon.filter((l) => l.arm === 'control').length;
+    const nHoldout = cleanDueSoon.filter((l) => l.arm === 'holdout').length;
+    const remainingEligible = cleanDueSoon.filter(
+      (l) => l.arm === 'control' || l.arm === 'holdout'
     ).length;
+    const remainingDueSoon = remainingEligible;
     const treatedRate = headline.leads_contacted
       ? headline.bookings_observed / headline.leads_contacted
       : 0;
 
+    // Count leads dropped by the observability window (same filter both arms).
+    const observableIds = new Set(observableLeads.map((l) => l.id));
+    const excludedUnobservable = allReachable.filter((l) => !observableIds.has(l.id)).length;
+    const excludedUnobservableTreated = allReachable.filter(
+      (l) => l.arm === 'treated' && !observableIds.has(l.id)
+    ).length;
+
     const stale = (coverage.days_since_capture ?? 999) > STALE_CAPTURE_DAYS;
     const controlArmLabel = nHoldout > 0 ? 'randomised+observational' : 'observational';
 
-    const bins = aggregateBins(leads).map((b) => ({
+    const bins = aggregateBins(cleanDueSoon).map((b) => ({
       lead_type: b.lead_type,
       deadline_bin: b.deadline_bin,
       n_treated: b.n_treated,
@@ -559,12 +597,22 @@ export async function getMeasurementReport({ force = false } = {}) {
       bk_control: b.bk_control,
       control_rate: b.n_control ? b.bk_control / b.n_control : null,
       n_holdout: b.n_holdout,
+      expected: b.n_treated && b.n_control ? b.n_treated * (b.bk_control / b.n_control) : null,
       usable: b.n_control >= MIN_CONTROL && b.n_treated > 0,
     }));
 
     const payload = {
       generated_at: new Date().toISOString(),
       compute_ms: Date.now() - started,
+      method: {
+        name: 'stratified_direct_standardisation',
+        population: 'due_soon_observable_window',
+        observable_from: observableFrom,
+        strata: 'lead_type × deadline_bin',
+        min_control_per_stratum: MIN_CONTROL,
+        note:
+          'Headline = due_soon leads with next_inspection_date ≥ capture start, stratified by deadline bin, standardised to treated mix. Do not filter on booked_at. Control arm is observational until a randomised holdout exists.',
+      },
       freshness: {
         last_capture_at: coverage.last_capture_at,
         days_since_capture: coverage.days_since_capture,
@@ -576,64 +624,41 @@ export async function getMeasurementReport({ force = false } = {}) {
         control_n: nControl + nHoldout,
         holdout_n: nHoldout,
         holdout_table_ready: holdout.exists,
+        observable_from: observableFrom,
+        excluded_unobservable_leads: excludedUnobservable,
+        excluded_unobservable_treated: excludedUnobservableTreated,
         note:
-          'Headline uplift uses deadline-bin standardisation on reachable due_soon/passed leads. Treated bookings dated inside the Jun 23–Jul 26 WA outage (lag/claim tail) are excluded from uplift — that window had a different rate and has not recurred. Snapshot capture is batchy — incomplete weeks are reported here and must not be read as zero demand.',
-        wa_outage: {
-          start: WA_OUTAGE.start,
-          end: WA_OUTAGE.end,
-          treated_bookings_excluded: outageExcludedTreatedBookings,
-        },
+          'Headline uplift is deadline-bin direct standardisation on capture-observable due_soon leads only. passed is reported separately (window largely unobserved). Snapshot capture is batchy — incomplete weeks must not be read as zero demand.',
       },
       arms: {
         treated: nTreated,
         control: nControl,
         holdout: nHoldout,
-        treated_booked: leads.filter((l) => l.arm === 'treated' && l.booked).length,
-        treated_booked_raw: rawLeads.filter((l) => l.arm === 'treated' && l.booked).length,
-        control_booked: leads.filter((l) => l.arm === 'control' && l.booked).length,
-        outage_excluded_treated_bookings: outageExcludedTreatedBookings,
+        treated_booked: cleanDueSoon.filter((l) => l.arm === 'treated' && l.booked).length,
+        control_booked: cleanDueSoon.filter((l) => l.arm === 'control' && l.booked).length,
+        all_reachable_treated: allReachable.filter((l) => l.arm === 'treated').length,
+        passed_observable_treated: passedObservable.filter((l) => l.arm === 'treated').length,
       },
       headline: {
-        bookings_observed: headline.bookings_observed,
-        bookings_expected: Number(headline.bookings_expected.toFixed(2)),
-        bookings_incremental: Number(headline.bookings_incremental.toFixed(2)),
-        multiplier: headline.multiplier != null ? Number(headline.multiplier.toFixed(3)) : null,
-        leads_contacted: headline.leads_contacted,
-        treated_rate: Number(treatedRate.toFixed(4)),
-        ci95_incremental: bootstrap.ci95.map((v) => (v == null ? null : Number(v.toFixed(1)))),
-        bootstrap_samples: bootstrap.samples,
-        bins_used: headline.bins_used,
-        bins_skipped: headline.bins_skipped,
-        skipped_bins: headline.skipped,
-        outage_excluded_treated_bookings: outageExcludedTreatedBookings,
+        ...serializeUplift(headline, bootstrap),
+        population: 'due_soon_observable_window',
+        observable_from: observableFrom,
       },
       by_lead_type: {
         due_soon: {
-          bookings_incremental: Number(byType.due_soon.bookings_incremental.toFixed(2)),
-          multiplier:
-            byType.due_soon.multiplier != null ? Number(byType.due_soon.multiplier.toFixed(3)) : null,
-          leads_contacted: byType.due_soon.leads_contacted,
-          bookings_observed: byType.due_soon.bookings_observed,
-          bookings_expected: Number(byType.due_soon.bookings_expected.toFixed(2)),
+          ...serializeUplift(byType.due_soon),
+          population: 'due_soon_observable_window',
         },
         passed: {
-          bookings_incremental: Number(byType.passed.bookings_incremental.toFixed(2)),
-          multiplier:
-            byType.passed.multiplier != null ? Number(byType.passed.multiplier.toFixed(3)) : null,
-          leads_contacted: byType.passed.leads_contacted,
-          bookings_observed: byType.passed.bookings_observed,
-          bookings_expected: Number(byType.passed.bookings_expected.toFixed(2)),
+          ...serializeUplift(byType.passed),
+          population: 'passed_observable_window',
+          partially_unobserved: true,
+          note:
+            'passed deadlines sit before import by definition; the observability filter removes most of this campaign. Treat as directional only.',
         },
       },
       by_station,
-      lift_vs_tj_reminders: {
-        bookings_incremental: Number(reminderLift.bookings_incremental.toFixed(2)),
-        multiplier:
-          reminderLift.multiplier != null ? Number(reminderLift.multiplier.toFixed(3)) : null,
-        leads_contacted: reminderLift.leads_contacted,
-        bookings_observed: reminderLift.bookings_observed,
-        bookings_expected: Number(reminderLift.bookings_expected.toFixed(2)),
-      },
+      lift_vs_tj_reminders: serializeUplift(reminderLift),
       recovered_lapsed_customers: recoveredLapsed,
       days_booked_earlier: {
         treated_mean_days_to_deadline: mean(treatedBookedDays),
@@ -655,6 +680,7 @@ export async function getMeasurementReport({ force = false } = {}) {
         weeks: coverage.weeks,
         incomplete_count: coverage.incomplete_count,
         complete_count: coverage.complete_count,
+        observable_from: observableFrom,
       },
       ops: buildOps(opsRaw.sessions, opsRaw.statuses),
       cache: { hit: false, age_ms: 0 },
