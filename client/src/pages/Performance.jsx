@@ -784,15 +784,16 @@ export default function PerformancePage() {
               const name = row.station_name || row.station || '—';
               const contacted = row.contacted || row.leads_contacted || 0;
               const rateValue =
-                row.bookingRate != null
+                contacted > 0 && row.bookingRate != null
                   ? row.bookingRate
-                  : row.dueSoonBookingRate != null
+                  : contacted > 0 && row.dueSoonBookingRate != null
                     ? row.dueSoonBookingRate
                     : null;
               const rateLabel = rateValue != null ? `${Number(rateValue).toFixed(1)}%` : '—';
+              // Incremental tab: scale period attributed detections by the measured multiplier.
               const stationAttributed = row.bookings ?? 0;
               const stationLift =
-                multiplier != null && multiplier > 0
+                contacted > 0 && multiplier != null && multiplier > 0
                   ? stationAttributed * (1 - 1 / multiplier)
                   : null;
               const liftLabel =

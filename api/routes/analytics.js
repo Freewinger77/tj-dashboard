@@ -73,13 +73,21 @@ async function buildAnalytics(period = 'all') {
     allSessions.filter((session) => session.customer_id && session.customer_id !== 999999),
     snapshotsByReg
   );
+  // Attributed hero: booking detection / created time in the window.
   const bookings = allBookings.filter((booking) => {
     if (!cutoff) return true;
     const ts = Date.parse(booking.dorisBookingCreatedAt || booking.appointmentAt || 0);
     return Number.isFinite(ts) && ts >= cutoff;
   });
+  // Rates / heatmap: bookings from messages sent in the same window as `rows`
+  // so booked÷contacted stays coherent (never 100%+ from older sends).
+  const bookingsFromPeriodSends = allBookings.filter((booking) => {
+    if (!cutoff) return true;
+    const ts = Date.parse(booking.whatsappSentAt || 0);
+    return Number.isFinite(ts) && ts >= cutoff;
+  });
   const reminders = buildReminderSummary(sessions, allStatuses, snapshotsByReg);
-  const byStation = buildByStation(rows, bookings);
+  const byStation = buildByStation(rows, bookingsFromPeriodSends);
 
   const repliedBookings = bookings.filter((booking) => booking.customerReplied).length;
   const matchedBookings = bookings.filter((booking) => booking.calendarMatched).length;
@@ -89,7 +97,7 @@ async function buildAnalytics(period = 'all') {
   const dueSoonDelivered = rows.filter((row) => row.campaignType === 'due_soon' && row.delivered).length;
   const dueSoonBookings = bookings.filter((booking) => booking.campaignType === 'due_soon').length;
   const activeDueSoonSent = activeRows.filter((row) => row.campaignType === 'due_soon').length;
-  const sendTimePerformance = buildSendTimePerformance(rows, bookings);
+  const sendTimePerformance = buildSendTimePerformance(rows, bookingsFromPeriodSends);
   const replyTiming = buildReplyTiming(rows);
 
   // Prior calendar month (Helsinki) — only useful when viewing "month".
