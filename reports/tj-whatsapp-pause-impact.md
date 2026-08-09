@@ -102,6 +102,63 @@ So **snapshots/day is a poor causal measure of WhatsApp impact**. It mostly refl
 
 ---
 
+## 3b. Natural-experiment gate (three-table gap query)
+
+Replicated the “daily activity → largest missing_days” query separately on each table.
+
+### Largest gaps
+
+| Table | Timestamp | Last active | Resumed | Missing days | Vol before → after |
+|---|---|---|---|---:|---:|
+| `tj_message_status` | `sent_at` | **2026-06-22** | **2026-07-27** | **34** | 12 → 4 |
+| `tj_outbound_sessions` | `last_outbound_at` | **2026-06-22** | **2026-07-27** | **34** | 12 → 4 |
+| `tj_outbound_sessions` | `created_at` (new sessions) | 2026-06-08 | 2026-07-27 | 48 | 24 → 4 |
+| `tj_booking_snapshots` | `first_seen_at` | 2026-07-05 | 2026-07-26 | 20* | 620 → 19 |
+
+\*Snapshot “gaps” are scrape-cadence holes, not “no bookings existed.” During the WA silence, scrapes still landed on **27 Jun (576)**, **5 Jul (620)**, **26 Jul (19)** — **1,215 snapshot rows** inside the zero-outbound window.
+
+### Verdict
+
+**GENUINE CONTROL (with intermittent measurement).**
+
+- Intervention (`tj_message_status` / outbound) **stopped** for 34 days
+- Measurement (`tj_booking_snapshots`) **kept running** (batch scrapes during the same window)
+- Therefore the pause *can* be used as a natural experiment — with the caveat that snapshot ingest is bursty, not daily-continuous (including a 20-day scrape hole 5 Jul → 26 Jul)
+
+### Correction to trailing-counter back-of-envelope
+
+Dashboard `month=36` / `week=28` is **calendar August / current ISO week**, not a rolling lookback:
+
+- Aug 1–9 @ 4/day ≈ **36**
+- Last 7 days @ 4/day ≈ **28**
+- **10 Jul → 26 Jul had zero sends** (still inside the pause)
+- Resume is **27 Jul**, not ~3 Aug; post-resume rate is a steady trickle of **4/day**, not a late restart of the old ~21/day machine
+
+### Attribution check during zero-outbound
+
+| | Active pre (56d) | Gap no-WA (34d) | Gap/Pre rate |
+|---|---:|---:|---:|
+| `booked_from_snapshot` | 181 (3.23/d) | 57 (1.68/d) | **0.52×** |
+| `booked` (explicit) | 22 (0.39/d) | 5 (0.15/d) | 0.38× |
+| All attributed | 203 (3.62/d) | 62 (1.82/d) | 0.50× |
+
+All **57** gap `booked_from_snapshot` rows had a prior `last_outbound_at` (they are messaged customers). Lag message → detect during gap: **median 52 days** (p25 44, p75 59).
+
+**Read:** snapshot-matched attributions do **not** collapse to zero when outbound stops — they continue at ~half rate as a **lagged tail**. That is consistent with delayed conversion / delayed scrape matching, but it is **not yet** a clean proof against matching noise. Defending 20% / 26.7% to K1 still needs a tighter never-messaged control (reg join formats in `raw_data` are messy; deep extract only recovered 1,242 session regs).
+
+### Per-station attributed / day
+
+| Station | Pre | Gap | Notes |
+|---|---:|---:|---|
+| Vaajakoski | 0.89 | 0.65 | Smallest drop |
+| Muurame | 0.68 | 0.44 | |
+| Laukaa | 1.07 | 0.38 | |
+| Jämsä | 0.98 | 0.35 | Station-paused since 18 Jun; still sees gap lag attributions |
+
+Jämsä-as-cross-section control is contaminated for this pause window because Jämsä was already station-paused *before* the global outbound kill, and gap attributions there are still mostly lag from earlier messages.
+
+---
+
 ## 4. Overall funnel (current DB snapshot)
 
 | Metric | Value |
