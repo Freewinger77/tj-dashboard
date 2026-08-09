@@ -246,6 +246,22 @@ export default function PerformancePage() {
       const { exportPerformanceReport } = await import('../lib/exportPerformanceReport.js');
       const dueSoon = measurement?.by_lead_type?.due_soon;
       const passed = measurement?.by_lead_type?.passed;
+      const weekTotals = (perfBars || []).map((b) => b.total || 0);
+      const last = weekTotals[weekTotals.length - 1] ?? 0;
+      const prev = weekTotals[weekTotals.length - 2] ?? 0;
+      const bookingDeltaPct =
+        prev > 0 ? Math.round(((last - prev) / prev) * 1000) / 10 : null;
+      const dueSoonRate =
+        dueSoon?.leads_contacted > 0
+          ? dueSoon.bookings_observed / dueSoon.leads_contacted
+          : null;
+      const bookingRate =
+        summary.dueSoonBookingConversionRate ??
+        summary.currentBookingConversionRate ??
+        (dueSoonRate != null ? dueSoonRate * 100 : null);
+      const revenueImpact =
+        incremental != null ? Math.round(Number(incremental) * 89) : null;
+
       exportPerformanceReport({
         periodLabel: PERIODS.find((p) => p.key === period)?.label || period,
         periodWindow: periodWindowLabel(period),
@@ -262,16 +278,17 @@ export default function PerformancePage() {
         silentBookings,
         byStation,
         bestWindow,
-        dueSoonRate:
-          dueSoon?.leads_contacted > 0
-            ? dueSoon.bookings_observed / dueSoon.leads_contacted
-            : null,
+        dueSoonRate,
         passedRate:
           passed?.leads_contacted > 0
             ? passed.bookings_observed / passed.leads_contacted
             : null,
         bookingDataThrough,
         captureStale: Boolean(measurement?.freshness?.stale || attributedCoverageGap),
+        bookingSeries: weekTotals,
+        bookingDeltaPct,
+        bookingRate,
+        revenueImpact,
         generatedAt: new Date(),
       });
     } catch (err) {
