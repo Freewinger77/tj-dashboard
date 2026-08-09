@@ -9,12 +9,21 @@ import {
   pollMessageStatuses,
 } from '../lib/api.js';
 import { PageHeader } from '../components/layout/Shell.jsx';
+import HelpTip from '../components/ui/HelpTip.jsx';
+import Skeleton from '../components/ui/Skeleton.jsx';
 
 const PERIODS = [
   { key: 'week', label: 'Week' },
   { key: 'month', label: 'Month' },
   { key: 'all', label: 'All time' },
 ];
+
+const METHOD_HELP = {
+  attributed:
+    'Registration-matched bookings after a WhatsApp outreach. Follows the Week / Month / All time control above.',
+  incremental:
+    'Extra bookings above what the control arm would have produced. Always all-time — does not change with the period control.',
+};
 
 function fmt(n, digits = 0) {
   if (n == null || Number.isNaN(n)) return '—';
@@ -72,7 +81,8 @@ export default function PerformancePage() {
   const period = PERIODS.some((p) => p.key === searchParams.get('period'))
     ? searchParams.get('period')
     : 'week';
-  const method = searchParams.get('method') === 'attributed' ? 'attributed' : 'incremental';
+  // Default: Attributed (period-aware). Incremental is opt-in / all-time only.
+  const method = searchParams.get('method') === 'incremental' ? 'incremental' : 'attributed';
 
   const setParam = (key, val) => {
     const next = new URLSearchParams(searchParams);
@@ -96,6 +106,8 @@ export default function PerformancePage() {
   useEffect(() => {
     pollMessageStatuses().catch(() => {});
   }, []);
+
+  const loading = statsQ.isLoading || analyticsQ.isLoading || measurementQ.isLoading;
 
   const stats = statsQ.data || {};
   const analytics = analyticsQ.data || {};
@@ -130,8 +142,9 @@ export default function PerformancePage() {
     return Number.isFinite(ts) && ts >= cutoff;
   });
 
-  const attributedCount =
-    period === 'all' ? summary.bookingsAfterWhatsApp ?? bookings.length : periodBookings.length;
+  // Attributed follows the period control; incremental is always all-time.
+  const attributedAllTime = summary.bookingsAfterWhatsApp ?? bookings.length;
+  const attributedCount = period === 'all' ? attributedAllTime : periodBookings.length;
   const silentBookings = periodBookings.filter((b) => !b.customerReplied).length;
   const incremental = measurement?.headline?.bookings_incremental;
   const hero = method === 'incremental' ? incremental : attributedCount;
@@ -184,11 +197,31 @@ export default function PerformancePage() {
     </div>
   );
 
+  const isIncremental = method === 'incremental';
+
+  if (loading) {
+    return (
+      <>
+        <PageHeader
+          title="Performance"
+          subtitle="Outreach funnel, bookings, and send windows"
+          actions={periodControls}
+        />
+        <div
+          style={{ overflowY: 'auto', padding: '16px 20px 28px', flex: 1 }}
+          className="lg:!px-7 lg:!pt-6 lg:!pb-10"
+        >
+          <PerformanceSkeleton />
+        </div>
+      </>
+    );
+  }
+
   return (
     <>
       <PageHeader
         title="Performance"
-        subtitle="Every panel on this page uses the period below"
+        subtitle="Outreach funnel, bookings, and send windows"
         actions={
           <>
             {periodControls}
@@ -257,7 +290,9 @@ export default function PerformancePage() {
             <div>
               <div style={{ fontSize: 14, fontWeight: 600 }}>Bookings from outreach</div>
               <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
-                {periodWindowLabel(period)} · Europe/Helsinki
+                {isIncremental
+                  ? 'All time · incremental ignores the period control'
+                  : `${periodWindowLabel(period)} · Europe/Helsinki`}
               </div>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -267,17 +302,23 @@ export default function PerformancePage() {
               <div className="rs-seg">
                 <button
                   type="button"
-                  aria-pressed={method === 'incremental'}
-                  onClick={() => setParam('method', 'incremental')}
-                >
-                  Incremental
-                </button>
-                <button
-                  type="button"
                   aria-pressed={method === 'attributed'}
                   onClick={() => setParam('method', 'attributed')}
                 >
                   Attributed
+                  <HelpTip label="About attributed bookings" side="bottom">
+                    {METHOD_HELP.attributed}
+                  </HelpTip>
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={method === 'incremental'}
+                  onClick={() => setParam('method', 'incremental')}
+                >
+                  Incremental
+                  <HelpTip label="About incremental bookings" side="bottom">
+                    {METHOD_HELP.incremental}
+                  </HelpTip>
                 </button>
               </div>
             </div>
@@ -315,9 +356,18 @@ export default function PerformancePage() {
                         letterSpacing: '.14em',
                         textTransform: 'uppercase',
                         color: 'var(--text-muted)',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 6,
                       }}
                     >
-                      {method === 'incremental' ? 'Incremental bookings' : 'Attributed bookings'}
+                      {isIncremental ? 'Incremental bookings' : 'Attributed bookings'}
+                      <HelpTip
+                        label={isIncremental ? 'About incremental bookings' : 'About attributed bookings'}
+                        side="bottom"
+                      >
+                        {isIncremental ? METHOD_HELP.incremental : METHOD_HELP.attributed}
+                      </HelpTip>
                     </div>
                     <div
                       style={{
@@ -329,7 +379,7 @@ export default function PerformancePage() {
                         fontVariantNumeric: 'tabular-nums',
                       }}
                     >
-                      {method === 'incremental' ? fmt(hero, 0) : fmt(hero)}
+                      {fmt(hero, 0)}
                     </div>
                     <div
                       style={{
@@ -339,16 +389,23 @@ export default function PerformancePage() {
                         lineHeight: 1.5,
                       }}
                     >
-                      {method === 'incremental' ? (
+                      {isIncremental ? (
                         <>
-                          Bookings above the control rate, from{' '}
-                          {fmt(measurement?.headline?.leads_contacted)} contacted. Attributed count
-                          is <b style={{ color: '#000' }}>{fmt(summary.bookingsAfterWhatsApp ?? bookings.length)}</b>.
+                          All-time lift above the control rate, from{' '}
+                          {fmt(measurement?.headline?.leads_contacted)} contacted. Period chips do
+                          not change this number. Attributed for the selected period is{' '}
+                          <b style={{ color: '#000' }}>{fmt(attributedCount)}</b>.
                         </>
                       ) : (
                         <>
-                          Registration-matched bookings after outreach. Incremental lift is{' '}
-                          <b style={{ color: '#000' }}>{fmt(incremental, 0)}</b> all-time.
+                          Registration-matched bookings for{' '}
+                          {period === 'week'
+                            ? 'this week'
+                            : period === 'month'
+                              ? 'this month'
+                              : 'all time'}
+                          . Incremental lift stays all-time at{' '}
+                          <b style={{ color: '#000' }}>{fmt(incremental, 0)}</b>.
                         </>
                       )}
                     </div>
@@ -620,6 +677,81 @@ export default function PerformancePage() {
         </div>
       </div>
     </>
+  );
+}
+
+function PerformanceSkeleton() {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <div className="rs-panel" style={{ overflow: 'hidden' }}>
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            gap: 12,
+            padding: '16px 20px',
+            borderBottom: '1px solid var(--border-subtle)',
+          }}
+        >
+          <div style={{ flex: 1 }}>
+            <Skeleton className="h-4 w-40" />
+            <Skeleton className="h-3 w-56" style={{ marginTop: 8 }} />
+          </div>
+          <Skeleton className="h-9 w-52" />
+        </div>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: '1fr',
+            padding: 20,
+            gap: 20,
+          }}
+          className="lg:!grid-cols-[300px_minmax(0,1fr)]"
+        >
+          <div>
+            <Skeleton className="h-3 w-32" />
+            <Skeleton className="h-16 w-28" style={{ marginTop: 12 }} />
+            <Skeleton className="h-3 w-full" style={{ marginTop: 16 }} />
+            <Skeleton className="h-3 w-4/5" style={{ marginTop: 8 }} />
+          </div>
+          <Skeleton className="h-48 w-full" />
+        </div>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(2,1fr)',
+            borderTop: '1px solid var(--border-subtle)',
+          }}
+          className="lg:!grid-cols-4"
+        >
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} style={{ padding: '16px 20px' }}>
+              <Skeleton className="h-3 w-16" />
+              <Skeleton className="h-7 w-20" style={{ marginTop: 8 }} />
+            </div>
+          ))}
+        </div>
+      </div>
+      <div
+        style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 20 }}
+        className="lg:!grid-cols-[minmax(0,1fr)_400px]"
+      >
+        <div className="rs-panel" style={{ padding: 20 }}>
+          <Skeleton className="h-4 w-28" />
+          <Skeleton className="h-3 w-48" style={{ marginTop: 8 }} />
+          <Skeleton className="h-56 w-full" style={{ marginTop: 20 }} />
+        </div>
+        <div className="rs-panel" style={{ padding: 20 }}>
+          <Skeleton className="h-4 w-24" />
+          <Skeleton className="h-3 w-36" style={{ marginTop: 8 }} />
+          <div style={{ marginTop: 20, display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {Array.from({ length: 5 }).map((_, i) => (
+              <Skeleton key={i} className="h-8 w-full" />
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 

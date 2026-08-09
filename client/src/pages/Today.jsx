@@ -15,6 +15,8 @@ import {
 } from '../lib/api.js';
 import { relativeTime } from '../lib/format.js';
 import { PageHeader } from '../components/layout/Shell.jsx';
+import HelpTip from '../components/ui/HelpTip.jsx';
+import Skeleton from '../components/ui/Skeleton.jsx';
 import { ToastContainer, useToast } from '../components/ui/Toast.jsx';
 
 function fmt(n, digits = 0) {
@@ -301,6 +303,9 @@ export default function TodayPage() {
   const dueMult = byType.due_soon?.multiplier;
   const passedMult = byType.passed?.multiplier;
   const maxMult = Math.max(dueMult || 0, passedMult || 0, 1);
+  const weekLoading = statsQ.isLoading || analyticsQ.isLoading;
+  const valueLoading = measurementQ.isLoading;
+  const poolLoading = leadPoolQ.isLoading || leadPool?.status === 'running';
 
   return (
     <>
@@ -490,11 +495,13 @@ export default function TodayPage() {
                   value={fmt(week.sent)}
                   hint="this week"
                   first
+                  loading={weekLoading}
                 />
                 <WeekKpi
                   label="Delivered"
                   value={fmt(weekDelivered)}
                   hint={deliveredRate != null ? `${deliveredRate}% of sent` : '—'}
+                  loading={weekLoading}
                 />
                 <WeekKpi
                   label="Replied"
@@ -506,17 +513,23 @@ export default function TodayPage() {
                         ? `${pct(week.replied, week.sent)}% of sent`
                         : '—'
                   }
+                  loading={weekLoading}
                 />
                 <WeekKpi
                   label="Booked"
                   value={fmt(weekBooked)}
                   hint={week.sent ? `${pct(weekBooked, week.sent)}% of sent` : '—'}
                   green
+                  loading={weekLoading}
                 />
               </div>
               <div style={{ padding: '0 20px 20px' }}>
                 <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: 64 }}>
-                  {(weekBars.length ? weekBars : Array.from({ length: 8 }, () => ({ h: '12%', c: 'rgba(79,80,127,.18)' }))).map(
+                  {weekLoading
+                    ? Array.from({ length: 8 }).map((_, i) => (
+                        <Skeleton key={i} className="w-full" style={{ height: `${20 + (i % 4) * 12}%`, flex: 1 }} />
+                      ))
+                    : (weekBars.length ? weekBars : Array.from({ length: 8 }, () => ({ h: '12%', c: 'rgba(79,80,127,.18)' }))).map(
                     (b, i) => (
                       <div
                         key={i}
@@ -576,9 +589,15 @@ export default function TodayPage() {
                     letterSpacing: '.14em',
                     textTransform: 'uppercase',
                     color: 'var(--text-muted)',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
                   }}
                 >
                   Incremental bookings
+                  <HelpTip label="About incremental bookings" side="bottom">
+                    Extra bookings above what the control arm would have produced. Always all-time.
+                  </HelpTip>
                 </div>
                 <div
                   style={{
@@ -590,7 +609,11 @@ export default function TodayPage() {
                     fontVariantNumeric: 'tabular-nums',
                   }}
                 >
-                  {fmt(headline?.bookings_incremental, 0)}
+                  {valueLoading ? (
+                    <Skeleton className="h-12 w-28" />
+                  ) : (
+                    fmt(headline?.bookings_incremental, 0)
+                  )}
                 </div>
                 <div
                   style={{
@@ -685,16 +708,20 @@ export default function TodayPage() {
                     fontVariantNumeric: 'tabular-nums',
                   }}
                 >
-                  {leadPoolQ.isLoading || leadPool?.status === 'running' ? '…' : fmt(poolTotal)}
+                  {poolLoading ? <Skeleton className="h-9 w-24" /> : fmt(poolTotal)}
                 </div>
-                {weeksAtPace != null && (
+                {weeksAtPace != null && !poolLoading && (
                   <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
                     ≈ {weeksAtPace} weeks at current pace
                   </div>
                 )}
               </div>
               <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 9 }}>
-                {poolStations.length === 0 && !leadPoolQ.isLoading && (
+                {poolLoading &&
+                  Array.from({ length: 4 }).map((_, i) => (
+                    <Skeleton key={i} className="h-4 w-full" />
+                  ))}
+                {poolStations.length === 0 && !poolLoading && (
                   <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
                     {leadPoolQ.isError
                       ? 'Could not load lead pool'
@@ -932,7 +959,7 @@ export default function TodayPage() {
                   fontVariantNumeric: 'tabular-nums',
                 }}
               >
-                {fmt(week.sent)}
+                {weekLoading ? <Skeleton className="h-8 w-16" /> : fmt(week.sent)}
               </div>
             </div>
             <div>
@@ -947,13 +974,19 @@ export default function TodayPage() {
                   fontVariantNumeric: 'tabular-nums',
                 }}
               >
-                {fmt(weekBooked)}
+                {weekLoading ? <Skeleton className="h-8 w-16" /> : fmt(weekBooked)}
               </div>
             </div>
           </div>
           <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-muted)' }}>
-            {week.sent ? `${pct(weekBooked, week.sent)}% of sent booked` : '—'} ·{' '}
-            {week.sent ? `${pct(week.replied, week.sent)}% replied` : '—'}
+            {weekLoading ? (
+              <Skeleton className="h-3 w-40" />
+            ) : (
+              <>
+                {week.sent ? `${pct(weekBooked, week.sent)}% of sent booked` : '—'} ·{' '}
+                {week.sent ? `${pct(week.replied, week.sent)}% replied` : '—'}
+              </>
+            )}
           </div>
         </div>
 
@@ -964,9 +997,15 @@ export default function TodayPage() {
               letterSpacing: '.14em',
               textTransform: 'uppercase',
               color: 'var(--text-muted)',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
             }}
           >
             Incremental bookings
+            <HelpTip label="About incremental bookings" side="bottom">
+              Extra bookings above what the control arm would have produced. Always all-time.
+            </HelpTip>
           </div>
           <div
             style={{
@@ -978,7 +1017,11 @@ export default function TodayPage() {
               fontVariantNumeric: 'tabular-nums',
             }}
           >
-            {fmt(headline?.bookings_incremental, 0)}
+            {valueLoading ? (
+              <Skeleton className="h-11 w-24" />
+            ) : (
+              fmt(headline?.bookings_incremental, 0)
+            )}
           </div>
           <div style={{ fontSize: 12, color: 'rgba(0,0,0,.55)', marginTop: 8, lineHeight: 1.45 }}>
             {headline?.multiplier != null ? `${Number(headline.multiplier).toFixed(2)}×` : '—'} the
@@ -1021,7 +1064,7 @@ function Meta({ label, value }) {
   );
 }
 
-function WeekKpi({ label, value, hint, first, green }) {
+function WeekKpi({ label, value, hint, first, green, loading }) {
   return (
     <div
       style={{
@@ -1043,7 +1086,7 @@ function WeekKpi({ label, value, hint, first, green }) {
           color: green ? 'rgb(40,150,70)' : '#000',
         }}
       >
-        {value}
+        {loading ? <Skeleton className="h-9 w-16" /> : value}
       </div>
       <div
         style={{
@@ -1053,7 +1096,7 @@ function WeekKpi({ label, value, hint, first, green }) {
           minHeight: 16,
         }}
       >
-        {hint || '\u00a0'}
+        {loading ? <Skeleton className="h-3 w-20" /> : hint || '\u00a0'}
       </div>
     </div>
   );

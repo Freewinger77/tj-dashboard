@@ -255,6 +255,9 @@
     color: rgba(0, 0, 0, 0.55);
     font-weight: 400;
     font-family: inherit;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
   }
   .rs-seg button:first-child {
     border-left: 0;
