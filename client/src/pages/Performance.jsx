@@ -149,11 +149,48 @@ export default function PerformancePage() {
   const incremental = measurement?.headline?.bookings_incremental;
   const hero = method === 'incremental' ? incremental : attributedCount;
 
+  const lastBookingAt = useMemo(() => {
+    let max = 0;
+    for (const b of bookings) {
+      const ts = Date.parse(b.dorisBookingCreatedAt || b.bookingDetectedAt || 0);
+      if (Number.isFinite(ts) && ts > max) max = ts;
+    }
+    return max || null;
+  }, [bookings]);
+
+  const lastCaptureAt = measurement?.freshness?.last_capture_at
+    ? Date.parse(measurement.freshness.last_capture_at)
+    : null;
+  const bookingDataThrough = Math.max(lastBookingAt || 0, lastCaptureAt || 0) || null;
+
+  // Calendar month/week can look "empty" while sends continue if capture is behind.
+  const attributedCoverageGap =
+    !isNaN(cutoff) &&
+    cutoff > 0 &&
+    bookingDataThrough != null &&
+    bookingDataThrough < cutoff;
+
+  const priorMonthBookings = useMemo(() => {
+    if (period !== 'month') return null;
+    const start = startOfHelsinkiMonth();
+    const prevStart = new Date(
+      Date.UTC(start.getUTCFullYear(), start.getUTCMonth() - 1, 1)
+    );
+    const prevEnd = start.getTime();
+    let n = 0;
+    for (const b of bookings) {
+      const ts = Date.parse(b.dorisBookingCreatedAt || b.appointmentAt || 0);
+      if (Number.isFinite(ts) && ts >= prevStart.getTime() && ts < prevEnd) n += 1;
+    }
+    return { count: n, start: prevStart, end: new Date(prevEnd - 86400000) };
+  }, [bookings, period]);
+
   const perfBars = useMemo(() => {
     const map = new Map();
     for (const b of bookings) {
       const ts = Date.parse(b.dorisBookingCreatedAt || b.appointmentAt || 0);
       if (!Number.isFinite(ts)) continue;
+      if (cutoff && ts < cutoff) continue;
       const key = startOfHelsinkiWeek(new Date(ts)).toISOString().slice(0, 10);
       const due = (b.campaignType || b.campaign_type || '').includes('due');
       const cur = map.get(key) || { due: 0, passed: 0 };
@@ -163,11 +200,13 @@ export default function PerformancePage() {
     }
     const rows = [...map.entries()].sort((a, b) => a[0].localeCompare(b[0])).slice(-13);
     const max = Math.max(...rows.map(([, v]) => v.due + v.passed), 1);
-    return rows.map(([, v]) => ({
+    return rows.map(([weekKey, v]) => ({
+      weekKey,
       d: `${Math.max(2, Math.round((v.due / max) * 100))}%`,
       p: `${Math.max(0, Math.round((v.passed / max) * 100))}%`,
+      total: v.due + v.passed,
     }));
-  }, [bookings]);
+  }, [bookings, cutoff]);
 
   const byStation = measurement?.by_station || [];
   const heat = buildHeat(sendWindows);
@@ -324,6 +363,39 @@ export default function PerformancePage() {
             </div>
           </div>
 
+          {!isIncremental && (attributedCoverageGap || measurement?.freshness?.stale) && (
+            <div
+              style={{
+                margin: '0 0 0',
+                padding: '12px 20px',
+                borderBottom: '1px solid var(--border-subtle)',
+                background: 'rgba(232, 168, 56, 0.1)',
+                fontSize: 13,
+                lineHeight: 1.45,
+                color: 'rgba(0,0,0,.75)',
+              }}
+            >
+              Booking capture last updated{' '}
+              <b style={{ color: '#000' }}>
+                {bookingDataThrough
+                  ? new Intl.DateTimeFormat('en-GB', {
+                      day: 'numeric',
+                      month: 'short',
+                      year: 'numeric',
+                      timeZone: 'Europe/Helsinki',
+                    }).format(new Date(bookingDataThrough))
+                  : '—'}
+              </b>
+              . Attributed numbers for this period are incomplete until you{' '}
+              <Link to="/capture" style={{ color: 'var(--brand-logo-indigo)', fontWeight: 500 }}>
+                run a new capture
+              </Link>
+              {priorMonthBookings?.count
+                ? ` — ${priorMonthBookings.count} bookings were captured in the prior month.`
+                : '.'}
+            </div>
+          )}
+
           <div
             className="grid"
             style={{ gridTemplateColumns: 'minmax(0,1fr)', }}
@@ -396,6 +468,26 @@ export default function PerformancePage() {
                           not change this number. Attributed for the selected period is{' '}
                           <b style={{ color: '#000' }}>{fmt(attributedCount)}</b>.
                         </>
+                      ) : attributedCoverageGap && attributedCount === 0 ? (
+                        <>
+                          No new registration matches since the last capture
+                          {bookingDataThrough
+                            ? ` (${new Intl.DateTimeFormat('en-GB', {
+                                day: 'numeric',
+                                month: 'short',
+                                timeZone: 'Europe/Helsinki',
+                              }).format(new Date(bookingDataThrough))})`
+                            : ''}
+                          . Sent/delivered above still update live — bookings need a fresh capture.
+                          {priorMonthBookings?.count ? (
+                            <>
+                              {' '}
+                              Prior month had <b style={{ color: '#000' }}>{priorMonthBookings.count}</b>.
+                            </>
+                          ) : null}{' '}
+                          Incremental lift stays all-time at{' '}
+                          <b style={{ color: '#000' }}>{fmt(incremental, 0)}</b>.
+                        </>
                       ) : (
                         <>
                           Registration-matched bookings for{' '}
@@ -454,6 +546,7 @@ export default function PerformancePage() {
                         }}
                       >
                         Bookings per week
+                        {period !== 'all' ? ' · this period' : ' · all time'}
                       </div>
                       <div style={{ display: 'flex', gap: 16, fontSize: 11, color: 'rgba(0,0,0,.55)' }}>
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
@@ -480,34 +573,52 @@ export default function PerformancePage() {
                         </span>
                       </div>
                     </div>
-                    <div
-                      style={{
-                        display: 'flex',
-                        alignItems: 'flex-end',
-                        gap: 8,
-                        height: 190,
-                        borderBottom: '1px solid var(--border-default)',
-                      }}
-                    >
-                      {(perfBars.length
-                        ? perfBars
-                        : Array.from({ length: 8 }, () => ({ d: '20%', p: '10%' }))
-                      ).map((b, i) => (
-                        <div
-                          key={i}
-                          style={{
-                            flex: 1,
-                            display: 'flex',
-                            flexDirection: 'column',
-                            justifyContent: 'flex-end',
-                            height: '100%',
-                          }}
-                        >
-                          <div style={{ background: 'rgba(79,80,127,.42)', height: b.p }} />
-                          <div style={{ background: 'var(--brand-logo-indigo)', height: b.d }} />
-                        </div>
-                      ))}
-                    </div>
+                    {perfBars.length === 0 ? (
+                      <div
+                        style={{
+                          height: 190,
+                          display: 'grid',
+                          placeItems: 'center',
+                          borderBottom: '1px solid var(--border-default)',
+                          fontSize: 13,
+                          color: 'var(--text-muted)',
+                          textAlign: 'center',
+                          padding: '0 16px',
+                          lineHeight: 1.45,
+                        }}
+                      >
+                        {attributedCoverageGap
+                          ? 'No captured bookings in this period yet — chart follows the same capture window as the big number.'
+                          : 'No bookings in this period.'}
+                      </div>
+                    ) : (
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'flex-end',
+                          gap: 8,
+                          height: 190,
+                          borderBottom: '1px solid var(--border-default)',
+                        }}
+                      >
+                        {perfBars.map((b) => (
+                          <div
+                            key={b.weekKey}
+                            title={`${b.weekKey} · ${b.total} bookings`}
+                            style={{
+                              flex: 1,
+                              display: 'flex',
+                              flexDirection: 'column',
+                              justifyContent: 'flex-end',
+                              height: '100%',
+                            }}
+                          >
+                            <div style={{ background: 'rgba(79,80,127,.42)', height: b.p }} />
+                            <div style={{ background: 'var(--brand-logo-indigo)', height: b.d }} />
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
