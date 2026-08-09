@@ -158,6 +158,16 @@ export default function PerformancePage() {
 
   const byStation = measurement?.by_station || [];
   const heat = buildHeat(sendWindows);
+  const bestWindow = useMemo(() => {
+    let best = null;
+    for (const [key, cell] of heat.cells.entries()) {
+      if (!best || cell.replyRate > best.replyRate) {
+        const [day, hour] = key.split('|');
+        best = { day, hour: Number(hour), replyRate: cell.replyRate, sent: cell.sent || 0 };
+      }
+    }
+    return best;
+  }, [heat]);
 
   const periodControls = (
     <div className="rs-seg">
@@ -515,7 +525,26 @@ export default function PerformancePage() {
                 }}
               >
                 <div style={{ fontSize: 13, color: 'rgba(0,0,0,.8)' }}>
-                  Reply rates by send window — darker cells convert better.
+                  {bestWindow ? (
+                    <>
+                      {bestWindow.day === 'Mon'
+                        ? 'Monday'
+                        : bestWindow.day === 'Tue'
+                          ? 'Tuesday'
+                          : bestWindow.day === 'Wed'
+                            ? 'Wednesday'
+                            : bestWindow.day === 'Thu'
+                              ? 'Thursday'
+                              : bestWindow.day === 'Fri'
+                                ? 'Friday'
+                                : bestWindow.day}{' '}
+                      {String(bestWindow.hour).padStart(2, '0')}:00 replies at{' '}
+                      <b>{Math.round(bestWindow.replyRate * 100)}%</b>
+                      {bestWindow.sent ? ` · n=${bestWindow.sent}` : ''}.
+                    </>
+                  ) : (
+                    <>Reply rates by send window — darker cells convert better.</>
+                  )}
                 </div>
                 <Link to="/controls" className="rs-btn-fill" style={{ textDecoration: 'none', padding: '6px 12px', fontSize: 12 }}>
                   Shift the schedule
@@ -682,12 +711,20 @@ function HeatGrid({ heat }) {
 
 function buildHeat(rows) {
   const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
-  const hourSet = new Set();
-  const cells = new Map();
-  let maxRate = 0;
+  // Mockup columns — map nearby send hours into these buckets
+  const hours = [9, 11, 13, 15, 17, 19];
+  const raw = new Map(); // day|hourExact -> rate
   for (const row of rows || []) {
-    const dayRaw = row.weekday || row.day || row.dow;
-    const hour = Number(row.hour ?? row.sendHour);
+    let dayRaw = row.weekday || row.day || row.dow;
+    let hour = Number(row.hour ?? row.sendHour);
+    // Live analytics shape: { key: "Thu 10", replyRate: 5.5 }
+    if ((dayRaw == null || Number.isNaN(hour)) && row.key) {
+      const parts = String(row.key).trim().split(/\s+/);
+      if (parts.length >= 2) {
+        dayRaw = parts[0];
+        hour = Number(parts[1]);
+      }
+    }
     if (!dayRaw || Number.isNaN(hour)) continue;
     const day =
       {
@@ -696,23 +733,38 @@ function buildHeat(rows) {
         Wed: 'Wed',
         Thu: 'Thu',
         Fri: 'Fri',
+        Sat: 'Sat',
+        Sun: 'Sun',
         Monday: 'Mon',
         Tuesday: 'Tue',
         Wednesday: 'Wed',
         Thursday: 'Thu',
         Friday: 'Fri',
       }[dayRaw] || String(dayRaw).slice(0, 3);
-    hourSet.add(hour);
+    if (!days.includes(day)) continue;
     const replyRate = row.replyRate > 1 ? row.replyRate / 100 : row.replyRate || 0;
-    cells.set(`${day}|${hour}`, { replyRate });
-    maxRate = Math.max(maxRate, replyRate);
+    const key = `${day}|${hour}`;
+    const prev = raw.get(key);
+    // Prefer higher-volume windows when colliding
+    if (!prev || (row.sent || 0) >= (prev.sent || 0)) {
+      raw.set(key, { replyRate, sent: row.sent || 0 });
+    }
   }
-  const hours = [...hourSet].sort((a, b) => a - b);
-  const present = days.filter((d) => hours.some((h) => cells.has(`${d}|${h}`)));
-  return {
-    days: present.length ? present : days,
-    hours: hours.length ? hours : [9, 11, 13, 15, 17, 19],
-    cells,
-    maxRate,
-  };
+
+  const cells = new Map();
+  let maxRate = 0;
+  for (const day of days) {
+    for (const displayHour of hours) {
+      // Exact hour, then ±1 (so "10" lands under 09/11)
+      const candidates = [displayHour, displayHour - 1, displayHour + 1]
+        .map((h) => raw.get(`${day}|${h}`))
+        .filter(Boolean);
+      if (!candidates.length) continue;
+      const best = candidates.reduce((a, b) => (b.replyRate > a.replyRate ? b : a));
+      cells.set(`${day}|${displayHour}`, best);
+      maxRate = Math.max(maxRate, best.replyRate);
+    }
+  }
+
+  return { days, hours, cells, maxRate };
 }

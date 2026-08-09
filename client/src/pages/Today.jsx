@@ -204,6 +204,19 @@ export default function TodayPage() {
     }));
   }, [analyticsQ.data]);
 
+  const poolStations = useMemo(() => {
+    const leadPool = leadPoolQ.data;
+    if (Array.isArray(leadPool?.by_station)) return leadPool.by_station;
+    if (Array.isArray(leadPool?.stations)) return leadPool.stations;
+    const counts = leadPool?.station_counts;
+    if (counts && typeof counts === 'object') {
+      return Object.entries(counts)
+        .map(([name, n]) => ({ name, station_name: name, remaining: Number(n) || 0 }))
+        .sort((a, b) => b.remaining - a.remaining);
+    }
+    return [];
+  }, [leadPoolQ.data]);
+
   const tasks = [];
   if (needsReply.length > 0) {
     const oldest = needsReply[0];
@@ -263,14 +276,15 @@ export default function TodayPage() {
   const spendToday = today.sent ? `$${(today.sent * 0.06).toFixed(2)} · ${today.sent} messages` : '$0.00 · 0 messages';
 
   const leadPool = leadPoolQ.data;
-  const poolStations = Array.isArray(leadPool?.by_station)
-    ? leadPool.by_station
-    : Array.isArray(leadPool?.stations)
-      ? leadPool.stations
-      : [];
   const poolTotal =
-    leadPool?.eligible_remaining ?? leadPool?.remaining ?? leadPool?.eligible_total ?? null;
+    leadPool?.total_remaining ??
+    leadPool?.eligible_remaining ??
+    leadPool?.remaining ??
+    leadPool?.eligible_total ??
+    null;
   const poolMax = Math.max(...poolStations.map((p) => p.remaining ?? p.count ?? p.eligible ?? 0), 1);
+  const weeksAtPace =
+    poolTotal != null && week.sent > 0 ? Math.max(1, Math.round(poolTotal / week.sent)) : null;
 
   const updatedAt = analyticsQ.data?.generated_at || measurementQ.data?.generated_at;
   const updatedLabel = updatedAt
@@ -467,15 +481,20 @@ export default function TodayPage() {
                 style={{
                   display: 'grid',
                   gridTemplateColumns: 'repeat(4,1fr)',
-                  alignItems: 'end',
+                  alignItems: 'start',
                   padding: 20,
                 }}
               >
-                <WeekKpi label="Sent" value={fmt(week.sent)} first />
+                <WeekKpi
+                  label="Sent"
+                  value={fmt(week.sent)}
+                  hint="this week"
+                  first
+                />
                 <WeekKpi
                   label="Delivered"
                   value={fmt(weekDelivered)}
-                  hint={deliveredRate != null ? `${deliveredRate}% of sent` : undefined}
+                  hint={deliveredRate != null ? `${deliveredRate}% of sent` : '—'}
                 />
                 <WeekKpi
                   label="Replied"
@@ -485,13 +504,13 @@ export default function TodayPage() {
                       ? `${pct(week.replied, weekDelivered)}% of delivered`
                       : week.sent
                         ? `${pct(week.replied, week.sent)}% of sent`
-                        : undefined
+                        : '—'
                   }
                 />
                 <WeekKpi
                   label="Booked"
                   value={fmt(weekBooked)}
-                  hint={week.sent ? `${pct(weekBooked, week.sent)}% of sent` : undefined}
+                  hint={week.sent ? `${pct(weekBooked, week.sent)}% of sent` : '—'}
                   green
                 />
               </div>
@@ -666,15 +685,31 @@ export default function TodayPage() {
                     fontVariantNumeric: 'tabular-nums',
                   }}
                 >
-                  {fmt(poolTotal)}
+                  {leadPoolQ.isLoading || leadPool?.status === 'running' ? '…' : fmt(poolTotal)}
                 </div>
+                {weeksAtPace != null && (
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                    ≈ {weeksAtPace} weeks at current pace
+                  </div>
+                )}
               </div>
               <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 9 }}>
+                {poolStations.length === 0 && !leadPoolQ.isLoading && (
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                    {leadPoolQ.isError
+                      ? 'Could not load lead pool'
+                      : 'No remaining due-soon leads in the pool'}
+                  </div>
+                )}
                 {poolStations.slice(0, 6).map((p) => {
                   const name = p.station_name || p.name || `Station ${p.station_id}`;
                   const n = p.remaining ?? p.count ?? p.eligible ?? 0;
-                  const paused = stations.find((s) => String(s.station_id) === String(p.station_id))
-                    ?.paused;
+                  const paused = stations.some(
+                    (s) =>
+                      s.paused &&
+                      (String(s.station_id) === String(p.station_id) ||
+                        s.station_name === name)
+                  );
                   return (
                     <div
                       key={name}
@@ -993,6 +1028,7 @@ function WeekKpi({ label, value, hint, first, green }) {
         paddingLeft: first ? 0 : 20,
         paddingRight: 20,
         borderLeft: first ? undefined : '1px solid var(--border-subtle)',
+        minWidth: 0,
       }}
     >
       <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{label}</div>
@@ -1002,15 +1038,23 @@ function WeekKpi({ label, value, hint, first, green }) {
           fontWeight: 600,
           letterSpacing: '-.02em',
           marginTop: 6,
+          lineHeight: 1,
           fontVariantNumeric: 'tabular-nums',
           color: green ? 'rgb(40,150,70)' : '#000',
         }}
       >
         {value}
       </div>
-      {hint && (
-        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>{hint}</div>
-      )}
+      <div
+        style={{
+          fontSize: 11,
+          color: 'var(--text-muted)',
+          marginTop: 4,
+          minHeight: 16,
+        }}
+      >
+        {hint || '\u00a0'}
+      </div>
     </div>
   );
 }
