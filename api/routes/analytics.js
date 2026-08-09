@@ -157,8 +157,10 @@ async function buildAnalytics(period = 'all') {
       remindersByStage: reminders.byStage,
       replyRate: percent(base.replied, base.contacted),
       deliveredReplyRate: percent(base.replied, base.delivered),
-      attributedBookingRate: percent(bookings.length, base.contacted),
-      deliveredBookingRate: percent(bookings.length, base.delivered),
+      // Conversion of period outreach (send-aligned), not detection-dated attributed count.
+      attributedBookingRate: percent(bookingsFromPeriodSends.length, base.contacted),
+      deliveredBookingRate: percent(bookingsFromPeriodSends.length, base.delivered),
+      bookingsFromPeriodSends: bookingsFromPeriodSends.length,
     },
     byStation,
     bookingsAfterWhatsApp: bookings,

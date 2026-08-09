@@ -49,9 +49,10 @@ SELECT
     WHEN (l.next_inspection_date - l.imported_at::date) BETWEEN 31 AND 45 THEN 'd31_45'
     WHEN (l.next_inspection_date - l.imported_at::date) BETWEEN 46 AND 60 THEN 'd46_60'
     WHEN (l.next_inspection_date - l.imported_at::date) BETWEEN 61 AND 90 THEN 'd61_90'
-    WHEN (l.next_inspection_date - l.imported_at::date) BETWEEN -90 AND -1 THEN 'overdue_0_90'
+    WHEN (l.next_inspection_date - l.imported_at::date) BETWEEN -30 AND -1 THEN 'overdue_0_30'
+    WHEN (l.next_inspection_date - l.imported_at::date) BETWEEN -90 AND -31 THEN 'overdue_31_90'
     WHEN (l.next_inspection_date - l.imported_at::date) BETWEEN -365 AND -91 THEN 'overdue_91_365'
-    ELSE 'overdue_365_plus'
+    WHEN (l.next_inspection_date - l.imported_at::date) < -365 THEN 'overdue_365_plus'
   END AS deadline_bin,
   CASE
     WHEN h.lead_id IS NOT NULL THEN 'holdout'

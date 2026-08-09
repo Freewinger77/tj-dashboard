@@ -48,6 +48,7 @@ export default function MeasurementPage() {
   const stale = Boolean(freshness?.stale);
 
   const liveUpliftPp = useMemo(() => {
+    if (headline?.lift_pp != null) return headline.lift_pp;
     if (!headline?.leads_contacted) return null;
     const treated = headline.treated_rate || 0;
     const control = headline.bookings_expected / headline.leads_contacted;
