@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -307,19 +307,12 @@ export default function TodayPage() {
   const passedMult = byType.passed?.multiplier;
   const maxMult = Math.max(dueMult || 0, passedMult || 0, 1);
   const weekLoading = statsQ.isLoading || analyticsQ.isLoading;
-  const valueLoading = measurementQ.isLoading || analyticsQ.isLoading;
+  const valueLoading = measurementQ.isLoading;
   const poolLoading = leadPoolQ.isLoading || leadPool?.status === 'running';
 
-  // Overall (attributed) is the default on Today — same card as incremental lift.
-  const [valueMethod, setValueMethod] = useState('attributed');
-  const attributedTotal =
-    analyticsQ.data?.summary?.bookingsAfterWhatsApp ??
-    headline?.bookings_observed ??
-    0;
   const attributedByCampaign = analyticsQ.data?.summary?.bookingsAfterWhatsAppByCampaign || {};
   const attributedDue = attributedByCampaign.due_soon ?? byType.due_soon?.bookings_observed ?? 0;
   const attributedPassed = attributedByCampaign.passed ?? byType.passed?.bookings_observed ?? 0;
-  const attributedBarMax = Math.max(attributedDue, attributedPassed, 1);
 
   const snapshot = useMemo(() => {
     const bookings = analyticsQ.data?.bookingsAfterWhatsApp || [];
@@ -666,23 +659,129 @@ export default function TodayPage() {
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-            <ProgrammeValueCard
-              method={valueMethod}
-              onMethodChange={setValueMethod}
-              loading={valueLoading}
-              contacted={headline?.leads_contacted}
-              attributedTotal={attributedTotal}
-              incremental={headline?.bookings_incremental}
-              multiplier={headline?.multiplier}
-              attributedDue={attributedDue}
-              attributedPassed={attributedPassed}
-              attributedBarMax={attributedBarMax}
-              dueMult={dueMult}
-              passedMult={passedMult}
-              maxMult={maxMult}
-              holdoutReady={measurementQ.data?.freshness?.holdout_table_ready}
-              size="desktop"
-            />
+            <div className="rs-panel" style={{ padding: 20 }}>
+              <div style={{ fontSize: 14, fontWeight: 600 }}>Value of the programme</div>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 3 }}>
+                All time · {fmt(headline?.leads_contacted)} customers contacted
+              </div>
+              <div
+                style={{
+                  marginTop: 18,
+                  background: 'var(--surface-sunken)',
+                  borderRadius: 'var(--radius-md)',
+                  padding: 18,
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: 10,
+                    letterSpacing: '.14em',
+                    textTransform: 'uppercase',
+                    color: 'var(--text-muted)',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
+                >
+                  Incremental bookings
+                  <HelpTip label="About incremental bookings" side="bottom">
+                    Extra bookings above what the control arm would have produced. Always all-time.
+                  </HelpTip>
+                </div>
+                <div
+                  style={{
+                    fontSize: 52,
+                    fontWeight: 600,
+                    letterSpacing: '-.025em',
+                    lineHeight: 1,
+                    marginTop: 10,
+                    fontVariantNumeric: 'tabular-nums',
+                  }}
+                >
+                  {valueLoading ? (
+                    <Skeleton className="h-12 w-28" />
+                  ) : (
+                    fmt(headline?.bookings_incremental, 0)
+                  )}
+                </div>
+                <div
+                  style={{
+                    fontSize: 12,
+                    color: 'rgba(0,0,0,.55)',
+                    marginTop: 10,
+                    lineHeight: 1.45,
+                  }}
+                >
+                  Bookings above what the control arm would have produced on its own.{' '}
+                  <b style={{ color: '#000' }}>
+                    {headline?.multiplier != null
+                      ? `${Number(headline.multiplier).toFixed(2)}×`
+                      : '—'}
+                  </b>{' '}
+                  the control rate.
+                </div>
+              </div>
+              <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ fontSize: 13, color: 'rgba(0,0,0,.55)' }}>Due soon</div>
+                  <div style={{ fontSize: 13, fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>
+                    {dueMult != null ? `${Number(dueMult).toFixed(2)}×` : '—'}
+                  </div>
+                </div>
+                <div
+                  style={{
+                    height: 6,
+                    borderRadius: 'var(--radius-pill)',
+                    background: 'rgba(0,0,0,.06)',
+                    overflow: 'hidden',
+                  }}
+                >
+                  <div
+                    style={{
+                      width: `${dueMult != null ? Math.min(100, (dueMult / maxMult) * 100) : 0}%`,
+                      height: '100%',
+                      background: 'var(--brand-logo-indigo)',
+                    }}
+                  />
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ fontSize: 13, color: 'rgba(0,0,0,.55)' }}>Passed</div>
+                  <div style={{ fontSize: 13, fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>
+                    {passedMult != null ? `${Number(passedMult).toFixed(2)}×` : '—'}
+                  </div>
+                </div>
+                <div
+                  style={{
+                    height: 6,
+                    borderRadius: 'var(--radius-pill)',
+                    background: 'rgba(0,0,0,.06)',
+                    overflow: 'hidden',
+                  }}
+                >
+                  <div
+                    style={{
+                      width: `${passedMult != null ? Math.min(100, (passedMult / maxMult) * 100) : 0}%`,
+                      height: '100%',
+                      background: 'rgba(79,80,127,.5)',
+                    }}
+                  />
+                </div>
+              </div>
+              {!measurementQ.data?.freshness?.holdout_table_ready && (
+                <div
+                  style={{
+                    marginTop: 16,
+                    paddingTop: 14,
+                    borderTop: '1px solid var(--border-subtle)',
+                    fontSize: 11,
+                    color: 'var(--text-muted)',
+                    lineHeight: 1.5,
+                  }}
+                >
+                  Control arm is observational until the holdout table is installed.
+                </div>
+              )}
+            </div>
 
             <div className="rs-panel" style={{ padding: 20 }}>
               <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
@@ -982,247 +1081,59 @@ export default function TodayPage() {
           </div>
         </div>
 
-        <ProgrammeValueCard
-          method={valueMethod}
-          onMethodChange={setValueMethod}
-          loading={valueLoading}
-          contacted={headline?.leads_contacted}
-          attributedTotal={attributedTotal}
-          incremental={headline?.bookings_incremental}
-          multiplier={headline?.multiplier}
-          attributedDue={attributedDue}
-          attributedPassed={attributedPassed}
-          attributedBarMax={attributedBarMax}
-          dueMult={dueMult}
-          passedMult={passedMult}
-          maxMult={maxMult}
-          holdoutReady={measurementQ.data?.freshness?.holdout_table_ready}
-          size="mobile"
-        />
-      </div>
-    </>
-  );
-}
-
-function ProgrammeValueCard({
-  method,
-  onMethodChange,
-  loading,
-  contacted,
-  attributedTotal,
-  incremental,
-  multiplier,
-  attributedDue,
-  attributedPassed,
-  attributedBarMax,
-  dueMult,
-  passedMult,
-  maxMult,
-  holdoutReady,
-  size = 'desktop',
-}) {
-  const isIncremental = method === 'incremental';
-  const isMobile = size === 'mobile';
-  const hero = isIncremental ? incremental : attributedTotal;
-  const heroSize = isMobile ? 44 : 52;
-
-  const rows = isIncremental
-    ? [
-        {
-          label: 'Due soon',
-          value: dueMult != null ? `${Number(dueMult).toFixed(2)}×` : '—',
-          width: dueMult != null ? Math.min(100, (dueMult / maxMult) * 100) : 0,
-          color: 'var(--brand-logo-indigo)',
-        },
-        {
-          label: 'Passed',
-          value: passedMult != null ? `${Number(passedMult).toFixed(2)}×` : '—',
-          width: passedMult != null ? Math.min(100, (passedMult / maxMult) * 100) : 0,
-          color: 'rgba(79,80,127,.5)',
-        },
-      ]
-    : [
-        {
-          label: 'Due soon',
-          value: fmt(attributedDue),
-          width: Math.min(100, (attributedDue / attributedBarMax) * 100),
-          color: 'var(--brand-logo-indigo)',
-        },
-        {
-          label: 'Passed',
-          value: fmt(attributedPassed),
-          width: Math.min(100, (attributedPassed / attributedBarMax) * 100),
-          color: 'rgba(79,80,127,.5)',
-        },
-      ];
-
-  return (
-    <div className="rs-panel" style={{ padding: isMobile ? 16 : 20, marginBottom: isMobile ? 16 : undefined }}>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'flex-start',
-          justifyContent: 'space-between',
-          gap: 12,
-          flexWrap: 'wrap',
-        }}
-      >
-        <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 14, fontWeight: 600 }}>Value of the programme</div>
-          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 3 }}>
-            All time · {fmt(contacted)} customers contacted
-          </div>
-        </div>
-        <div className="rs-seg">
-          <button
-            type="button"
-            aria-pressed={!isIncremental}
-            onClick={() => onMethodChange('attributed')}
+        <div className="rs-panel" style={{ padding: 16, marginBottom: 16 }}>
+          <div
+            style={{
+              fontSize: 11,
+              letterSpacing: '.14em',
+              textTransform: 'uppercase',
+              color: 'var(--text-muted)',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+            }}
           >
-            Overall
-            <HelpTip label="About overall bookings" side="bottom">
-              Registration-matched bookings after WhatsApp outreach. The full attributed count —
-              all time.
-            </HelpTip>
-          </button>
-          <button
-            type="button"
-            aria-pressed={isIncremental}
-            onClick={() => onMethodChange('incremental')}
-          >
-            Incremental
+            Incremental bookings
             <HelpTip label="About incremental bookings" side="bottom">
               Extra bookings above what the control arm would have produced. Always all-time.
             </HelpTip>
-          </button>
-        </div>
-      </div>
-
-      <div
-        style={{
-          marginTop: 18,
-          background: 'var(--surface-sunken)',
-          borderRadius: 'var(--radius-md)',
-          padding: isMobile ? 16 : 18,
-        }}
-      >
-        <div
-          style={{
-            fontSize: 10,
-            letterSpacing: '.14em',
-            textTransform: 'uppercase',
-            color: 'var(--text-muted)',
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 6,
-          }}
-        >
-          {isIncremental ? 'Incremental bookings' : 'Overall bookings'}
-          <HelpTip
-            label={isIncremental ? 'About incremental bookings' : 'About overall bookings'}
-            side="bottom"
-          >
-            {isIncremental
-              ? 'Extra bookings above what the control arm would have produced. Always all-time.'
-              : 'Registration-matched bookings after WhatsApp outreach. The full attributed count.'}
-          </HelpTip>
-        </div>
-        <div
-          style={{
-            fontSize: heroSize,
-            fontWeight: 600,
-            letterSpacing: '-.025em',
-            lineHeight: 1,
-            marginTop: 10,
-            fontVariantNumeric: 'tabular-nums',
-          }}
-        >
-          {loading ? <Skeleton className="h-12 w-28" /> : fmt(hero, 0)}
-        </div>
-        <div
-          style={{
-            fontSize: 12,
-            color: 'rgba(0,0,0,.55)',
-            marginTop: 10,
-            lineHeight: 1.45,
-          }}
-        >
-          {isIncremental ? (
-            <>
-              Bookings above what the control arm would have produced on its own.{' '}
-              <b style={{ color: '#000' }}>
-                {multiplier != null ? `${Number(multiplier).toFixed(2)}×` : '—'}
-              </b>{' '}
-              the control rate.
-            </>
-          ) : (
-            <>
-              Registration-matched bookings after outreach. Incremental lift is{' '}
-              <b style={{ color: '#000' }}>{fmt(incremental, 0)}</b> all-time.
-            </>
-          )}
-        </div>
-      </div>
-
-      <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {rows.map((row) => (
-          <div key={row.label}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div style={{ fontSize: 13, color: 'rgba(0,0,0,.55)' }}>{row.label}</div>
-              <div style={{ fontSize: 13, fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>
-                {loading ? <Skeleton className="h-3 w-10" /> : row.value}
-              </div>
-            </div>
-            <div
-              style={{
-                height: 6,
-                borderRadius: 'var(--radius-pill)',
-                background: 'rgba(0,0,0,.06)',
-                overflow: 'hidden',
-                marginTop: 6,
-              }}
-            >
-              <div
-                style={{
-                  width: `${row.width}%`,
-                  height: '100%',
-                  background: row.color,
-                }}
-              />
-            </div>
           </div>
-        ))}
-      </div>
-
-      {!holdoutReady && (
-        <div
-          style={{
-            marginTop: 16,
-            paddingTop: 14,
-            borderTop: '1px solid var(--border-subtle)',
-            fontSize: 11,
-            color: 'var(--text-muted)',
-            lineHeight: 1.5,
-          }}
-        >
-          Control arm is observational until the holdout table is installed.
+          <div
+            style={{
+              fontSize: 44,
+              fontWeight: 600,
+              letterSpacing: '-.03em',
+              marginTop: 8,
+              lineHeight: 1,
+              fontVariantNumeric: 'tabular-nums',
+            }}
+          >
+            {valueLoading ? (
+              <Skeleton className="h-11 w-24" />
+            ) : (
+              fmt(headline?.bookings_incremental, 0)
+            )}
+          </div>
+          <div style={{ fontSize: 12, color: 'rgba(0,0,0,.55)', marginTop: 8, lineHeight: 1.45 }}>
+            {headline?.multiplier != null ? `${Number(headline.multiplier).toFixed(2)}×` : '—'} the
+            control rate, all time, from {fmt(headline?.leads_contacted)} contacted.
+          </div>
+          <Link
+            to="/performance?method=incremental"
+            style={{
+              marginTop: 14,
+              display: 'inline-block',
+              fontSize: 13,
+              fontWeight: 500,
+              color: 'var(--brand-logo-indigo)',
+              textDecoration: 'none',
+            }}
+          >
+            See the breakdown →
+          </Link>
         </div>
-      )}
-
-      <Link
-        to={`/performance?method=${isIncremental ? 'incremental' : 'attributed'}`}
-        style={{
-          marginTop: 14,
-          display: 'inline-block',
-          fontSize: 13,
-          fontWeight: 500,
-          color: 'var(--brand-logo-indigo)',
-          textDecoration: 'none',
-        }}
-      >
-        See the breakdown →
-      </Link>
-    </div>
+      </div>
+    </>
   );
 }
 
