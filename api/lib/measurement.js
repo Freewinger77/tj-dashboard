@@ -446,29 +446,49 @@ export async function getMeasurementReport({ force = false } = {}) {
       due_soon: computeStandardizedUplift(leads.filter((l) => l.lead_type === 'due_soon')),
       passed: computeStandardizedUplift(leads.filter((l) => l.lead_type === 'passed')),
     };
-    const byStationRaw = computeStandardizedUplift(leads, { byStation: true });
-    const stationMap = new Map();
-    for (const b of byStationRaw.used) {
-      let row = stationMap.get(b.station_name);
-      if (!row) {
-        row = {
-          station_name: b.station_name,
-          bookings_observed: 0,
-          bookings_expected: 0,
-          leads_contacted: 0,
-        };
-        stationMap.set(b.station_name, row);
+    const rollupStations = (usedBins) => {
+      const stationMap = new Map();
+      for (const b of usedBins) {
+        let row = stationMap.get(b.station_name);
+        if (!row) {
+          row = {
+            station_name: b.station_name,
+            bookings_observed: 0,
+            bookings_expected: 0,
+            leads_contacted: 0,
+          };
+          stationMap.set(b.station_name, row);
+        }
+        row.bookings_observed += b.bk_treated;
+        row.bookings_expected += b.n_treated * b.control_rate;
+        row.leads_contacted += b.n_treated;
       }
-      row.bookings_observed += b.bk_treated;
-      row.bookings_expected += b.n_treated * b.control_rate;
-      row.leads_contacted += b.n_treated;
-    }
-    const by_station = [...stationMap.values()].map((r) => ({
-      ...r,
-      bookings_incremental: r.bookings_observed - r.bookings_expected,
-      multiplier: r.bookings_expected > 0 ? r.bookings_observed / r.bookings_expected : null,
-      treated_rate: r.leads_contacted ? r.bookings_observed / r.leads_contacted : 0,
-    }));
+      return stationMap;
+    };
+
+    const byStationRaw = computeStandardizedUplift(leads, { byStation: true });
+    const byStationDueSoonRaw = computeStandardizedUplift(
+      leads.filter((l) => l.lead_type === 'due_soon'),
+      { byStation: true }
+    );
+    const stationMap = rollupStations(byStationRaw.used);
+    const dueSoonStationMap = rollupStations(byStationDueSoonRaw.used);
+
+    const by_station = [...stationMap.values()].map((r) => {
+      const due = dueSoonStationMap.get(r.station_name);
+      return {
+        ...r,
+        bookings_incremental: r.bookings_observed - r.bookings_expected,
+        multiplier: r.bookings_expected > 0 ? r.bookings_observed / r.bookings_expected : null,
+        treated_rate: r.leads_contacted ? r.bookings_observed / r.leads_contacted : 0,
+        // Due-soon-only — comparable to the ~27% attributed due-soon conversion.
+        due_soon_leads_contacted: due?.leads_contacted || 0,
+        due_soon_bookings_observed: due?.bookings_observed || 0,
+        due_soon_treated_rate: due?.leads_contacted
+          ? due.bookings_observed / due.leads_contacted
+          : null,
+      };
+    });
 
     const reminderLift = computeStandardizedUplift(leads, { onlyReminder: true });
     const recoveredLapsed = leads.filter(

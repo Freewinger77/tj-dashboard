@@ -612,9 +612,26 @@ export default function PerformancePage() {
 
           <div className="rs-panel" style={{ overflow: 'hidden' }}>
             <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border-subtle)' }}>
-              <div style={{ fontSize: 14, fontWeight: 600 }}>By station</div>
+              <div
+                style={{
+                  fontSize: 14,
+                  fontWeight: 600,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                }}
+              >
+                By station
+                <HelpTip label="About station rates" side="left">
+                  {isIncremental
+                    ? 'Lift vs the control arm (standardised). Matches the all-time incremental headline — not a raw booking percentage.'
+                    : 'Due-soon booking rate only (booked ÷ contacted). Comparable to the ~27% due-soon conversion. All-campaign rates look lower because passed leads book ~8%.'}
+                </HelpTip>
+              </div>
               <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
-                Bookings per 100 contacted
+                {isIncremental
+                  ? 'Standardised lift vs control · all-time'
+                  : 'Due-soon booking rate · booked per 100 contacted'}
               </div>
             </div>
             <div
@@ -632,13 +649,24 @@ export default function PerformancePage() {
             >
               <span>Station</span>
               <span style={{ textAlign: 'right' }}>Sent</span>
-              <span style={{ textAlign: 'right' }}>Rate</span>
+              <span style={{ textAlign: 'right' }}>{isIncremental ? 'Lift' : 'Rate'}</span>
             </div>
             {(Array.isArray(byStation) ? byStation : []).slice(0, 8).map((row) => {
               const name = row.station_name || row.station || '—';
-              const contacted = row.leads_contacted || 0;
-              const booked = row.bookings_observed || 0;
-              const rate = contacted ? ((booked / contacted) * 100).toFixed(1) : '—';
+              const contacted = isIncremental
+                ? row.leads_contacted || 0
+                : row.due_soon_leads_contacted || row.leads_contacted || 0;
+              const dueSoonRate = row.due_soon_treated_rate;
+              const fallbackRate =
+                row.leads_contacted > 0 ? row.bookings_observed / row.leads_contacted : null;
+              const ratePct =
+                dueSoonRate != null
+                  ? (dueSoonRate * 100).toFixed(1)
+                  : fallbackRate != null
+                    ? (fallbackRate * 100).toFixed(1)
+                    : '—';
+              const lift =
+                row.multiplier != null ? `${Number(row.multiplier).toFixed(1)}×` : '—';
               const paused = pausedIds.has(String(row.station_id));
               return (
                 <div
@@ -668,7 +696,7 @@ export default function PerformancePage() {
                       fontVariantNumeric: 'tabular-nums',
                     }}
                   >
-                    {rate}
+                    {isIncremental ? lift : ratePct}
                   </span>
                 </div>
               );
