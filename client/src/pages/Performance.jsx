@@ -24,6 +24,9 @@ const PERIODS = [
   { key: 'all', label: 'All time' },
 ];
 
+/** Avg inspection ticket used for incremental revenue (matches Measurement default). */
+const AVG_TICKET_EUR = 89;
+
 const METHOD_HELP = {
   attributed:
     'Registration-matched bookings after a WhatsApp outreach. Follows the Week / Month / All time control above.',
@@ -184,6 +187,33 @@ export default function PerformancePage() {
       total: v.due + v.passed,
     }));
   }, [bookings]);
+
+  // Cumulative additional revenue for Incremental view: weekly attributed × lift share × ticket.
+  const revenueSeries = useMemo(() => {
+    const liftShare =
+      multiplier != null && multiplier > 1 ? 1 - 1 / multiplier : 0;
+    const map = new Map();
+    for (const b of bookings) {
+      const ts = Date.parse(b.dorisBookingCreatedAt || b.appointmentAt || 0);
+      if (!Number.isFinite(ts)) continue;
+      const key = startOfHelsinkiWeek(new Date(ts)).toISOString().slice(0, 10);
+      map.set(key, (map.get(key) || 0) + 1);
+    }
+    const weeks = [...map.entries()].sort((a, b) => a[0].localeCompare(b[0])).slice(-13);
+    let cum = 0;
+    return weeks.map(([weekKey, attributed]) => {
+      const incrementalBookings = attributed * liftShare;
+      const revenue = incrementalBookings * AVG_TICKET_EUR;
+      cum += revenue;
+      return {
+        weekKey,
+        attributed,
+        incrementalBookings,
+        revenue,
+        cumulative: cum,
+      };
+    });
+  }, [bookings, multiplier]);
 
   // Period-scoped station booking rates from analytics (not all-time measurement).
   const byStation = analytics.byStation || [];
@@ -547,93 +577,101 @@ export default function PerformancePage() {
                   </div>
 
                   <div className="hidden lg:block" style={{ padding: '24px 24px 20px', minWidth: 0 }}>
-                    <div
-                      style={{
-                        display: 'flex',
-                        alignItems: 'baseline',
-                        justifyContent: 'space-between',
-                        marginBottom: 16,
-                      }}
-                    >
-                      <div
-                        style={{
-                          fontSize: 11,
-                          letterSpacing: '.14em',
-                          textTransform: 'uppercase',
-                          color: 'var(--text-muted)',
-                        }}
-                      >
-                        Bookings per week
-                        {period !== 'all' ? ' · this period' : ' · all time'}
-                      </div>
-                      <div style={{ display: 'flex', gap: 16, fontSize: 11, color: 'rgba(0,0,0,.55)' }}>
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                          <span
-                            style={{
-                              width: 8,
-                              height: 8,
-                              borderRadius: 2,
-                              background: 'var(--brand-logo-indigo)',
-                            }}
-                          />
-                          Due soon
-                        </span>
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                          <span
-                            style={{
-                              width: 8,
-                              height: 8,
-                              borderRadius: 2,
-                              background: 'rgba(79,80,127,.42)',
-                            }}
-                          />
-                          Passed
-                        </span>
-                      </div>
-                    </div>
-                    {perfBars.length === 0 ? (
-                      <div
-                        style={{
-                          height: 190,
-                          display: 'grid',
-                          placeItems: 'center',
-                          borderBottom: '1px solid var(--border-default)',
-                          fontSize: 13,
-                          color: 'var(--text-muted)',
-                          textAlign: 'center',
-                          padding: '0 16px',
-                          lineHeight: 1.45,
-                        }}
-                      >
-                        No bookings in this period yet.
-                      </div>
+                    {isIncremental ? (
+                      <CumulativeRevenueChart series={revenueSeries} period={period} />
                     ) : (
-                      <div
-                        style={{
-                          display: 'flex',
-                          alignItems: 'flex-end',
-                          gap: 8,
-                          height: 190,
-                          borderBottom: '1px solid var(--border-default)',
-                        }}
-                      >
-                        {perfBars.map((b) => (
+                      <>
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'baseline',
+                            justifyContent: 'space-between',
+                            marginBottom: 16,
+                          }}
+                        >
                           <div
-                            key={b.weekKey}
-                            title={`${b.weekKey} · ${b.total} bookings`}
                             style={{
-                              flex: 1,
-                              display: 'flex',
-                              flexDirection: 'column',
-                              justifyContent: 'flex-end',
-                              height: '100%',
+                              fontSize: 11,
+                              letterSpacing: '.14em',
+                              textTransform: 'uppercase',
+                              color: 'var(--text-muted)',
                             }}
                           >
-                            <div style={{ background: 'rgba(79,80,127,.42)', height: b.p }} />
-                            <div style={{ background: 'var(--brand-logo-indigo)', height: b.d }} />
+                            Bookings per week
+                            {period !== 'all' ? ' · this period' : ' · all time'}
                           </div>
-                        ))}
-                      </div>
+                          <div
+                            style={{ display: 'flex', gap: 16, fontSize: 11, color: 'rgba(0,0,0,.55)' }}
+                          >
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                              <span
+                                style={{
+                                  width: 8,
+                                  height: 8,
+                                  borderRadius: 2,
+                                  background: 'var(--brand-logo-indigo)',
+                                }}
+                              />
+                              Due soon
+                            </span>
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                              <span
+                                style={{
+                                  width: 8,
+                                  height: 8,
+                                  borderRadius: 2,
+                                  background: 'rgba(79,80,127,.42)',
+                                }}
+                              />
+                              Passed
+                            </span>
+                          </div>
+                        </div>
+                        {perfBars.length === 0 ? (
+                          <div
+                            style={{
+                              height: 190,
+                              display: 'grid',
+                              placeItems: 'center',
+                              borderBottom: '1px solid var(--border-default)',
+                              fontSize: 13,
+                              color: 'var(--text-muted)',
+                              textAlign: 'center',
+                              padding: '0 16px',
+                              lineHeight: 1.45,
+                            }}
+                          >
+                            No bookings in this period yet.
+                          </div>
+                        ) : (
+                          <div
+                            style={{
+                              display: 'flex',
+                              alignItems: 'flex-end',
+                              gap: 8,
+                              height: 190,
+                              borderBottom: '1px solid var(--border-default)',
+                            }}
+                          >
+                            {perfBars.map((b) => (
+                              <div
+                                key={b.weekKey}
+                                title={`${b.weekKey} · ${b.total} bookings`}
+                                style={{
+                                  flex: 1,
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  justifyContent: 'flex-end',
+                                  height: '100%',
+                                }}
+                              >
+                                <div style={{ background: 'rgba(79,80,127,.42)', height: b.p }} />
+                                <div style={{ background: 'var(--brand-logo-indigo)', height: b.d }} />
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </>
                     )}
                   </div>
                 </div>
@@ -836,6 +874,166 @@ export default function PerformancePage() {
         </div>
       </div>
     </>
+  );
+}
+
+function formatEuro(n) {
+  if (n == null || Number.isNaN(n)) return '—';
+  return `€${Math.round(n).toLocaleString('en-US')}`;
+}
+
+function shortWeekLabel(weekKey) {
+  try {
+    return new Intl.DateTimeFormat('en-GB', {
+      day: 'numeric',
+      month: 'short',
+      timeZone: 'Europe/Helsinki',
+    }).format(new Date(`${weekKey}T12:00:00Z`));
+  } catch {
+    return weekKey;
+  }
+}
+
+/** Catmull-Rom → cubic Bézier smooth path through points. */
+function smoothLinePath(points) {
+  if (!points.length) return '';
+  if (points.length === 1) return `M ${points[0].x} ${points[0].y}`;
+  let d = `M ${points[0].x} ${points[0].y}`;
+  for (let i = 0; i < points.length - 1; i++) {
+    const p0 = points[i === 0 ? 0 : i - 1];
+    const p1 = points[i];
+    const p2 = points[i + 1];
+    const p3 = points[i + 2] || p2;
+    const cp1x = p1.x + (p2.x - p0.x) / 6;
+    const cp1y = p1.y + (p2.y - p0.y) / 6;
+    const cp2x = p2.x - (p3.x - p1.x) / 6;
+    const cp2y = p2.y - (p3.y - p1.y) / 6;
+    d += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${p2.x} ${p2.y}`;
+  }
+  return d;
+}
+
+function CumulativeRevenueChart({ series, period }) {
+  const total = series.length ? series[series.length - 1].cumulative : 0;
+  const w = 560;
+  const h = 190;
+  const padX = 8;
+  const padY = 16;
+  const maxY = Math.max(total, 1);
+
+  const points = series.map((row, i) => {
+    const x =
+      series.length === 1
+        ? w / 2
+        : padX + (i / (series.length - 1)) * (w - padX * 2);
+    const y = padY + (1 - row.cumulative / maxY) * (h - padY * 2);
+    return { x, y, ...row };
+  });
+  const line = smoothLinePath(points);
+  const area = line
+    ? `${line} L ${points[points.length - 1].x} ${h - 4} L ${points[0].x} ${h - 4} Z`
+    : '';
+
+  return (
+    <div>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'baseline',
+          justifyContent: 'space-between',
+          marginBottom: 12,
+          gap: 12,
+        }}
+      >
+        <div
+          style={{
+            fontSize: 11,
+            letterSpacing: '.14em',
+            textTransform: 'uppercase',
+            color: 'var(--text-muted)',
+          }}
+        >
+          Additional revenue · cumulative
+          {period !== 'all' ? ' · this period' : ''}
+        </div>
+        <div
+          style={{
+            fontSize: 18,
+            fontWeight: 600,
+            letterSpacing: '-.02em',
+            fontVariantNumeric: 'tabular-nums',
+          }}
+        >
+          {formatEuro(total)}
+        </div>
+      </div>
+      {series.length === 0 ? (
+        <div
+          style={{
+            height: h,
+            display: 'grid',
+            placeItems: 'center',
+            borderBottom: '1px solid var(--border-default)',
+            fontSize: 13,
+            color: 'var(--text-muted)',
+          }}
+        >
+          No incremental revenue in this period yet.
+        </div>
+      ) : (
+        <>
+          <svg
+            viewBox={`0 0 ${w} ${h}`}
+            width="100%"
+            height={h}
+            preserveAspectRatio="none"
+            role="img"
+            aria-label={`Cumulative additional revenue ${formatEuro(total)}`}
+            style={{ display: 'block', borderBottom: '1px solid var(--border-default)' }}
+          >
+            <defs>
+              <linearGradient id="revFill" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="var(--brand-logo-indigo)" stopOpacity="0.18" />
+                <stop offset="100%" stopColor="var(--brand-logo-indigo)" stopOpacity="0" />
+              </linearGradient>
+            </defs>
+            {area && <path d={area} fill="url(#revFill)" />}
+            <path
+              d={line}
+              fill="none"
+              stroke="var(--brand-logo-indigo)"
+              strokeWidth="2.25"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              vectorEffect="non-scaling-stroke"
+            />
+            {points.length > 0 && (
+              <circle
+                cx={points[points.length - 1].x}
+                cy={points[points.length - 1].y}
+                r="3.5"
+                fill="var(--brand-logo-indigo)"
+              />
+            )}
+          </svg>
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              marginTop: 8,
+              fontSize: 11,
+              color: 'var(--text-muted)',
+            }}
+          >
+            <span>{shortWeekLabel(series[0].weekKey)}</span>
+            <span style={{ color: 'rgba(0,0,0,.4)' }}>
+              €{AVG_TICKET_EUR}/booking · lift share
+            </span>
+            <span>{shortWeekLabel(series[series.length - 1].weekKey)}</span>
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 

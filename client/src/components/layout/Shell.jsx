@@ -1,17 +1,7 @@
 import { NavLink, useLocation } from 'react-router-dom';
-import {
-  BookOpen,
-  ChartLine,
-  LayoutGrid,
-  MessageCircle,
-  Moon,
-  Settings,
-  Sun,
-} from 'lucide-react';
+import { BookOpen, ChartLine, LayoutGrid, MessageCircle, Settings } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { fetchCustomers } from '../../lib/api.js';
-import { useTheme } from '../../lib/useTheme.js';
-import { useLocale } from '../../lib/locale.js';
 
 const DESKTOP_NAV = [
   { to: '/', end: true, label: 'Today', icon: LayoutGrid, fillWhenActive: true },
@@ -135,8 +125,6 @@ function MobileNavItem({ to, end, icon: Icon, children, badge }) {
 export default function Shell({ children }) {
   const location = useLocation();
   const onDetail = location.pathname.startsWith('/customers/');
-  const { isDark, toggle } = useTheme();
-  const { locale, setLocale } = useLocale();
 
   const needsQ = useQuery({
     queryKey: ['customers', 'replied', 'badge'],
@@ -197,92 +185,6 @@ export default function Shell({ children }) {
             </DesktopNavItem>
           ))}
         </nav>
-
-        <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: 10, padding: '0 8px' }}>
-          <div
-            style={{
-              fontSize: 10,
-              letterSpacing: '.14em',
-              textTransform: 'uppercase',
-              color: 'var(--text-muted)',
-            }}
-          >
-            Scope
-          </div>
-          <div
-            className="rs-hover"
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              padding: '8px 10px',
-              border: '1px solid var(--border-default)',
-              borderRadius: 'var(--radius-sm)',
-              fontSize: 13,
-              cursor: 'default',
-            }}
-          >
-            All stations
-            <span style={{ color: 'var(--text-muted)', fontSize: 10 }}>▾</span>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 2px' }}>
-            <img
-              src="/avatar-pyry.png"
-              alt=""
-              style={{ width: 24, height: 24, borderRadius: 'var(--radius-pill)', objectFit: 'cover' }}
-            />
-            <div style={{ fontSize: 12, color: 'rgba(0,0,0,.55)', flex: 1 }}>Ops</div>
-            <div
-              onClick={() => setLocale(locale === 'en' ? 'fi' : 'en')}
-              style={{
-                display: 'flex',
-                border: '1px solid var(--border-default)',
-                borderRadius: 6,
-                overflow: 'hidden',
-                cursor: 'pointer',
-              }}
-            >
-              <div
-                style={{
-                  padding: '2px 6px',
-                  fontSize: 10,
-                  fontWeight: 600,
-                  background: locale === 'en' ? 'rgba(0,0,0,.04)' : 'transparent',
-                  color: locale === 'en' ? '#000' : 'rgba(0,0,0,.4)',
-                }}
-              >
-                EN
-              </div>
-              <div
-                style={{
-                  padding: '2px 6px',
-                  fontSize: 10,
-                  fontWeight: 600,
-                  background: locale === 'fi' ? 'rgba(0,0,0,.04)' : 'transparent',
-                  color: locale === 'fi' ? '#000' : 'rgba(0,0,0,.4)',
-                }}
-              >
-                FI
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={toggle}
-              aria-label="Toggle theme"
-              style={{
-                border: 0,
-                background: 'transparent',
-                cursor: 'pointer',
-                color: 'rgba(0,0,0,.45)',
-                display: 'grid',
-                placeItems: 'center',
-                padding: 2,
-              }}
-            >
-              {isDark ? <Sun size={14} /> : <Moon size={14} />}
-            </button>
-          </div>
-        </div>
       </aside>
 
       <div className="rs-main">
