@@ -5,6 +5,7 @@ import ConversationPage from './pages/Conversation.jsx';
 import StatsPage from './pages/Stats.jsx';
 import SettingsPage from './pages/Settings.jsx';
 import BookingCapturePage from './pages/BookingCapture.jsx';
+import MeasurementPage from './pages/Measurement.jsx';
 
 export default function App() {
   return (
@@ -12,6 +13,7 @@ export default function App() {
       <Routes>
         <Route path="/" element={<CustomersPage />} />
         <Route path="/stats" element={<StatsPage />} />
+        <Route path="/measurement" element={<MeasurementPage />} />
         <Route path="/analytics" element={<Navigate to="/stats" replace />} />
         <Route path="/capture" element={<BookingCapturePage />} />
         <Route path="/settings" element={<SettingsPage />} />
