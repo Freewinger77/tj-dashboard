@@ -28,7 +28,7 @@ const METHOD_HELP = {
   attributed:
     'Registration-matched bookings after a WhatsApp outreach. Follows the Week / Month / All time control above.',
   incremental:
-    'Extra bookings above what the control arm would have produced. Always all-time — does not change with the period control.',
+    'Extra bookings above what the control arm would have produced. Scaled to the selected Week / Month / All time window using the measured multiplier.',
 };
 
 function fmt(n, digits = 0) {
@@ -60,8 +60,8 @@ export default function PerformancePage() {
   const [exporting, setExporting] = useState(false);
   const period = PERIODS.some((p) => p.key === searchParams.get('period'))
     ? searchParams.get('period')
-    : 'week';
-  // Default: Attributed (period-aware). Incremental is opt-in / all-time only.
+    : 'all';
+  // Default: Attributed. Incremental is opt-in and also follows the period control.
   const method = searchParams.get('method') === 'incremental' ? 'incremental' : 'attributed';
 
   const setParam = (key, val) => {
@@ -70,11 +70,21 @@ export default function PerformancePage() {
     setSearchParams(next, { replace: true });
   };
 
+  // Ensure default period is visible in the URL so reloads stay on All time.
+  useEffect(() => {
+    if (!searchParams.get('period')) {
+      const next = new URLSearchParams(searchParams);
+      next.set('period', 'all');
+      setSearchParams(next, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
+
   const statsQ = useQuery({ queryKey: ['stats'], queryFn: fetchStats, refetchInterval: 60_000 });
   const analyticsQ = useQuery({
-    queryKey: ['analytics'],
-    queryFn: fetchAnalytics,
+    queryKey: ['analytics', period],
+    queryFn: () => fetchAnalytics(period),
     refetchInterval: 5 * 60_000,
+    placeholderData: (prev) => prev,
   });
   const measurementQ = useQuery({
     queryKey: ['measurement'],
@@ -87,7 +97,13 @@ export default function PerformancePage() {
     pollMessageStatuses().catch(() => {});
   }, []);
 
-  const loading = statsQ.isLoading || analyticsQ.isLoading || measurementQ.isLoading;
+  const analyticsPeriodMismatch =
+    Boolean(analyticsQ.data) && analyticsQ.data.period !== period;
+  const loading =
+    statsQ.isLoading ||
+    measurementQ.isLoading ||
+    analyticsQ.isLoading ||
+    (analyticsQ.isFetching && analyticsPeriodMismatch);
 
   const stats = statsQ.data || {};
   const analytics = analyticsQ.data || {};
@@ -98,16 +114,10 @@ export default function PerformancePage() {
   const stations = stationsQ.data?.stations || [];
   const pausedIds = new Set(stations.filter((s) => s.paused).map((s) => String(s.station_id)));
 
-  const periodStats =
-    period === 'week' ? stats.week : period === 'month' ? stats.month : stats.total;
-  const sent = periodStats?.sent ?? 0;
-  const replied = periodStats?.replied ?? 0;
-  const delivered =
-    period === 'all'
-      ? stats.total?.delivered
-      : stats.total?.sent
-        ? Math.round((sent * (stats.total.delivered || 0)) / stats.total.sent)
-        : null;
+  // Prefer period-scoped analytics funnel; fall back to /stats calendar buckets.
+  const sent = summary.contacted ?? (period === 'week' ? stats.week?.sent : period === 'month' ? stats.month?.sent : stats.total?.sent) ?? 0;
+  const replied = summary.replied ?? (period === 'week' ? stats.week?.replied : period === 'month' ? stats.month?.replied : stats.total?.replied) ?? 0;
+  const delivered = summary.delivered ?? (period === 'all' ? stats.total?.delivered : null);
 
   const cutoff =
     period === 'week'
@@ -116,17 +126,19 @@ export default function PerformancePage() {
         ? startOfHelsinkiMonth().getTime()
         : 0;
 
-  const periodBookings = bookings.filter((b) => {
-    if (!cutoff) return true;
-    const ts = Date.parse(b.dorisBookingCreatedAt || b.appointmentAt || 0);
-    return Number.isFinite(ts) && ts >= cutoff;
-  });
-
-  // Attributed follows the period control; incremental is always all-time.
-  const attributedAllTime = summary.bookingsAfterWhatsApp ?? bookings.length;
-  const attributedCount = period === 'all' ? attributedAllTime : periodBookings.length;
-  const silentBookings = periodBookings.filter((b) => !b.customerReplied).length;
-  const incremental = measurement?.headline?.bookings_incremental;
+  // Analytics payload is already period-filtered server-side.
+  const attributedCount = summary.bookingsAfterWhatsApp ?? bookings.length;
+  const attributedAllTime =
+    period === 'all' ? attributedCount : measurement?.headline?.bookings_observed ?? attributedCount;
+  const silentBookings =
+    summary.bookingsAfterWhatsAppSilent ?? bookings.filter((b) => !b.customerReplied).length;
+  const multiplier = measurement?.headline?.multiplier;
+  const incrementalAllTime = measurement?.headline?.bookings_incremental;
+  // Scale incremental to the selected window: attributed × (1 − 1/multiplier).
+  const incremental =
+    period === 'all' || multiplier == null || !(multiplier > 0)
+      ? incrementalAllTime
+      : attributedCount * (1 - 1 / multiplier);
   const hero = method === 'incremental' ? incremental : attributedCount;
 
   const lastBookingAt = useMemo(() => {
@@ -146,27 +158,16 @@ export default function PerformancePage() {
   // Only warn when capture itself is older than a week — not on a fresh Monday rollover.
   const showStaleBanner = !isNaN(cutoff) && isCaptureStale(bookingDataThrough, 7);
 
-  const priorMonthBookings = useMemo(() => {
-    if (period !== 'month') return null;
-    const start = startOfHelsinkiMonth();
-    const prevStart = new Date(
-      Date.UTC(start.getUTCFullYear(), start.getUTCMonth() - 1, 1)
-    );
-    const prevEnd = start.getTime();
-    let n = 0;
-    for (const b of bookings) {
-      const ts = Date.parse(b.dorisBookingCreatedAt || b.appointmentAt || 0);
-      if (Number.isFinite(ts) && ts >= prevStart.getTime() && ts < prevEnd) n += 1;
-    }
-    return { count: n, start: prevStart, end: new Date(prevEnd - 86400000) };
-  }, [bookings, period]);
+  const priorMonthBookings =
+    period === 'month' && summary.priorMonthAttributed != null
+      ? { count: summary.priorMonthAttributed }
+      : null;
 
   const perfBars = useMemo(() => {
     const map = new Map();
     for (const b of bookings) {
       const ts = Date.parse(b.dorisBookingCreatedAt || b.appointmentAt || 0);
       if (!Number.isFinite(ts)) continue;
-      if (cutoff && ts < cutoff) continue;
       const key = startOfHelsinkiWeek(new Date(ts)).toISOString().slice(0, 10);
       const due = (b.campaignType || b.campaign_type || '').includes('due');
       const cur = map.get(key) || { due: 0, passed: 0 };
@@ -182,9 +183,10 @@ export default function PerformancePage() {
       p: `${Math.max(0, Math.round((v.passed / max) * 100))}%`,
       total: v.due + v.passed,
     }));
-  }, [bookings, cutoff]);
+  }, [bookings]);
 
-  const byStation = measurement?.by_station || [];
+  // Period-scoped station booking rates from analytics (not all-time measurement).
+  const byStation = analytics.byStation || [];
   const heat = buildHeat(sendWindows);
   const bestWindow = useMemo(() => {
     let best = null;
@@ -362,9 +364,7 @@ export default function PerformancePage() {
             <div>
               <div style={{ fontSize: 14, fontWeight: 600 }}>Bookings from outreach</div>
               <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
-                {isIncremental
-                  ? 'All time · incremental ignores the period control'
-                  : `${periodWindowLabel(period)} · Europe/Helsinki`}
+                {periodWindowLabel(period)} · Europe/Helsinki
               </div>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -496,9 +496,14 @@ export default function PerformancePage() {
                     >
                       {isIncremental ? (
                         <>
-                          All-time lift above the control rate, from{' '}
-                          {fmt(measurement?.headline?.leads_contacted)} contacted. Period chips do
-                          not change this number. Attributed for the selected period is{' '}
+                          Lift above the control rate for{' '}
+                          {period === 'week'
+                            ? 'this week'
+                            : period === 'month'
+                              ? 'this month'
+                              : 'all time'}
+                          {multiplier != null ? ` · ${Number(multiplier).toFixed(2)}× control` : ''}
+                          . Attributed in this window:{' '}
                           <b style={{ color: '#000' }}>{fmt(attributedCount)}</b>.
                         </>
                       ) : (
@@ -509,7 +514,7 @@ export default function PerformancePage() {
                             : period === 'month'
                               ? 'this month'
                               : 'all time'}
-                          . Incremental lift stays all-time at{' '}
+                          . Incremental lift for the same window:{' '}
                           <b style={{ color: '#000' }}>{fmt(incremental, 0)}</b>.
                         </>
                       )}
@@ -685,7 +690,9 @@ export default function PerformancePage() {
             >
               <div style={{ fontSize: 14, fontWeight: 600 }}>When to send</div>
               <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
-                Reply rate by weekday and hour. Darker is better.
+                Reply rate by weekday and hour for{' '}
+                {period === 'week' ? 'this week' : period === 'month' ? 'this month' : 'all time'}.
+                Darker is better.
               </div>
             </div>
             <div style={{ padding: 20 }}>
@@ -746,20 +753,20 @@ export default function PerformancePage() {
                 By station
                 <HelpTip label="About station rates" side="left">
                   {isIncremental
-                    ? 'Lift vs the control arm (standardised). Matches the all-time incremental headline — not a raw booking percentage.'
-                    : 'Due-soon booking rate only (booked ÷ contacted). Comparable to the ~27% due-soon conversion. All-campaign rates look lower because passed leads book ~8%.'}
+                    ? 'Estimated incremental bookings for this period at each site (attributed × (1 − 1/multiplier)), using the measured control multiplier.'
+                    : 'Booking rate for this period: attributed bookings ÷ contacted, shown as a percentage.'}
                 </HelpTip>
               </div>
               <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
                 {isIncremental
-                  ? 'Standardised lift vs control · all-time'
-                  : 'Due-soon booking rate · booked per 100 contacted'}
+                  ? `${PERIODS.find((p) => p.key === period)?.label || 'Period'} · estimated incremental bookings`
+                  : `${PERIODS.find((p) => p.key === period)?.label || 'Period'} · booking rate (%)`}
               </div>
             </div>
             <div
               style={{
                 display: 'grid',
-                gridTemplateColumns: 'minmax(0,1fr) 60px 60px',
+                gridTemplateColumns: 'minmax(0,1fr) 60px 72px',
                 gap: 8,
                 padding: '10px 20px',
                 background: 'var(--surface-sunken)',
@@ -771,31 +778,32 @@ export default function PerformancePage() {
             >
               <span>Station</span>
               <span style={{ textAlign: 'right' }}>Sent</span>
-              <span style={{ textAlign: 'right' }}>{isIncremental ? 'Lift' : 'Rate'}</span>
+              <span style={{ textAlign: 'right' }}>{isIncremental ? 'Lift' : 'Rate %'}</span>
             </div>
             {(Array.isArray(byStation) ? byStation : []).slice(0, 8).map((row) => {
               const name = row.station_name || row.station || '—';
-              const contacted = isIncremental
-                ? row.leads_contacted || 0
-                : row.due_soon_leads_contacted || row.leads_contacted || 0;
-              const dueSoonRate = row.due_soon_treated_rate;
-              const fallbackRate =
-                row.leads_contacted > 0 ? row.bookings_observed / row.leads_contacted : null;
-              const ratePct =
-                dueSoonRate != null
-                  ? (dueSoonRate * 100).toFixed(1)
-                  : fallbackRate != null
-                    ? (fallbackRate * 100).toFixed(1)
-                    : '—';
-              const lift =
-                row.multiplier != null ? `${Number(row.multiplier).toFixed(1)}×` : '—';
+              const contacted = row.contacted || row.leads_contacted || 0;
+              const rateValue =
+                row.bookingRate != null
+                  ? row.bookingRate
+                  : row.dueSoonBookingRate != null
+                    ? row.dueSoonBookingRate
+                    : null;
+              const rateLabel = rateValue != null ? `${Number(rateValue).toFixed(1)}%` : '—';
+              const stationAttributed = row.bookings ?? 0;
+              const stationLift =
+                multiplier != null && multiplier > 0
+                  ? stationAttributed * (1 - 1 / multiplier)
+                  : null;
+              const liftLabel =
+                stationLift != null ? fmt(stationLift, stationLift < 10 ? 1 : 0) : '—';
               const paused = pausedIds.has(String(row.station_id));
               return (
                 <div
-                  key={name}
+                  key={row.station_id || name}
                   style={{
                     display: 'grid',
-                    gridTemplateColumns: 'minmax(0,1fr) 60px 60px',
+                    gridTemplateColumns: 'minmax(0,1fr) 60px 72px',
                     gap: 8,
                     padding: '13px 20px',
                     borderBottom: '1px solid var(--border-subtle)',
@@ -818,7 +826,7 @@ export default function PerformancePage() {
                       fontVariantNumeric: 'tabular-nums',
                     }}
                   >
-                    {isIncremental ? lift : ratePct}
+                    {isIncremental ? liftLabel : rateLabel}
                   </span>
                 </div>
               );

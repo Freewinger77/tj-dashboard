@@ -75,7 +75,7 @@ export default function TodayPage() {
   const statsQ = useQuery({ queryKey: ['stats'], queryFn: fetchStats, refetchInterval: 60_000 });
   const analyticsQ = useQuery({
     queryKey: ['analytics'],
-    queryFn: fetchAnalytics,
+    queryFn: () => fetchAnalytics('all'),
     refetchInterval: 5 * 60_000,
   });
   const measurementQ = useQuery({

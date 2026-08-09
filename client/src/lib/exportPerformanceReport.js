@@ -200,12 +200,13 @@ export function exportPerformanceReport(snapshot) {
     doc.text(lines.slice(0, 3), x + 16, y + 74);
   };
 
-  const attributedBlurb =
-    method === 'attributed'
-      ? `Registration-matched for ${periodLabel?.toLowerCase() || 'period'}. All-time attributed ${fmt(attributedAllTime)}.`
-      : `All-time registration matches. Period view does not change this card when Incremental is selected.`;
+  const attributedBlurb = `Registration-matched for ${periodLabel?.toLowerCase() || 'period'}.${
+    attributedAllTime != null && periodLabel !== 'All time'
+      ? ` All-time attributed ${fmt(attributedAllTime)}.`
+      : ''
+  }`;
 
-  const incrementalBlurb = `Lift above control · ${fmt(multiplier, 2)}× · from ${fmt(leadsContacted)} contacted. Always all-time.`;
+  const incrementalBlurb = `Lift above control for ${periodLabel?.toLowerCase() || 'period'} · ${fmt(multiplier, 2)}× · from ${fmt(leadsContacted)} contacted (all-time base).`;
 
   drawHeroCard(
     margin,
@@ -312,8 +313,8 @@ export function exportPerformanceReport(snapshot) {
   sectionTitle(
     'By station',
     method === 'incremental'
-      ? 'Standardised lift vs control · all-time'
-      : 'Due-soon booking rate · booked per 100 contacted'
+      ? `${periodLabel || 'Period'} · estimated incremental bookings`
+      : `${periodLabel || 'Period'} · booking rate (%)`
   );
 
   const rows = (Array.isArray(byStation) ? byStation : []).slice(0, 12);
@@ -329,7 +330,12 @@ export function exportPerformanceReport(snapshot) {
   const cols = [
     { key: 'station', label: 'STATION', x: margin + 12, align: 'left' },
     { key: 'sent', label: 'SENT', x: margin + contentW * 0.55, align: 'right' },
-    { key: 'metric', label: method === 'incremental' ? 'LIFT' : 'RATE', x: margin + contentW - 12, align: 'right' },
+    {
+      key: 'metric',
+      label: method === 'incremental' ? 'LIFT' : 'RATE %',
+      x: margin + contentW - 12,
+      align: 'right',
+    },
   ];
   cols.forEach((c) => {
     doc.text(c.label, c.x, y + 14, { align: c.align });
@@ -354,20 +360,21 @@ export function exportPerformanceReport(snapshot) {
       doc.line(margin, y + rowH, pageW - margin, y + rowH);
 
       const name = row.station_name || row.station || '—';
-      const contacted =
-        method === 'incremental'
-          ? row.leads_contacted || 0
-          : row.due_soon_leads_contacted || row.leads_contacted || 0;
-      const dueSoonRateRow = row.due_soon_treated_rate;
-      const fallbackRate =
-        row.leads_contacted > 0 ? row.bookings_observed / row.leads_contacted : null;
-      const ratePct =
-        dueSoonRateRow != null
-          ? (dueSoonRateRow * 100).toFixed(1)
-          : fallbackRate != null
-            ? (fallbackRate * 100).toFixed(1)
-            : '—';
-      const lift = row.multiplier != null ? `${Number(row.multiplier).toFixed(1)}×` : '—';
+      const contacted = row.contacted || row.leads_contacted || 0;
+      const rateValue =
+        row.bookingRate != null
+          ? row.bookingRate
+          : row.dueSoonBookingRate != null
+            ? row.dueSoonBookingRate
+            : null;
+      const ratePct = rateValue != null ? `${Number(rateValue).toFixed(1)}%` : '—';
+      const stationAttributed = row.bookings ?? 0;
+      const stationLift =
+        multiplier != null && multiplier > 0
+          ? stationAttributed * (1 - 1 / multiplier)
+          : null;
+      const lift =
+        stationLift != null ? fmt(stationLift, stationLift < 10 ? 1 : 0) : '—';
 
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(10);
