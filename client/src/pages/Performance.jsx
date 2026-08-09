@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
@@ -78,6 +78,7 @@ function periodWindowLabel(period) {
 
 export default function PerformancePage() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const [exporting, setExporting] = useState(false);
   const period = PERIODS.some((p) => p.key === searchParams.get('period'))
     ? searchParams.get('period')
     : 'week';
@@ -238,6 +239,48 @@ export default function PerformancePage() {
 
   const isIncremental = method === 'incremental';
 
+  const handleExportReport = async () => {
+    if (exporting || loading) return;
+    setExporting(true);
+    try {
+      const { exportPerformanceReport } = await import('../lib/exportPerformanceReport.js');
+      const dueSoon = measurement?.by_lead_type?.due_soon;
+      const passed = measurement?.by_lead_type?.passed;
+      exportPerformanceReport({
+        periodLabel: PERIODS.find((p) => p.key === period)?.label || period,
+        periodWindow: periodWindowLabel(period),
+        method,
+        attributedCount,
+        attributedAllTime,
+        incremental,
+        multiplier: measurement?.headline?.multiplier,
+        leadsContacted: measurement?.headline?.leads_contacted,
+        treatedRate: measurement?.headline?.treated_rate,
+        sent,
+        delivered,
+        replied,
+        silentBookings,
+        byStation,
+        bestWindow,
+        dueSoonRate:
+          dueSoon?.leads_contacted > 0
+            ? dueSoon.bookings_observed / dueSoon.leads_contacted
+            : null,
+        passedRate:
+          passed?.leads_contacted > 0
+            ? passed.bookings_observed / passed.leads_contacted
+            : null,
+        bookingDataThrough,
+        captureStale: Boolean(measurement?.freshness?.stale || attributedCoverageGap),
+        generatedAt: new Date(),
+      });
+    } catch (err) {
+      console.error('Export report failed', err);
+    } finally {
+      setExporting(false);
+    }
+  };
+
   if (loading) {
     return (
       <>
@@ -264,14 +307,19 @@ export default function PerformancePage() {
         actions={
           <>
             {periodControls}
-            <button type="button" className="rs-btn">
-              Export
+            <button
+              type="button"
+              className="rs-btn"
+              onClick={handleExportReport}
+              disabled={exporting}
+            >
+              {exporting ? 'Exporting…' : 'Export report'}
             </button>
           </>
         }
       />
 
-      {/* Mobile period chips */}
+      {/* Mobile period chips + export */}
       <div
         className="flex lg:hidden"
         style={{
@@ -280,6 +328,7 @@ export default function PerformancePage() {
           padding: '12px 20px',
           borderBottom: '1px solid var(--border-subtle)',
           overflowX: 'auto',
+          alignItems: 'center',
         }}
       >
         {PERIODS.map((p) => (
@@ -304,6 +353,15 @@ export default function PerformancePage() {
             {p.label}
           </button>
         ))}
+        <button
+          type="button"
+          className="rs-btn"
+          onClick={handleExportReport}
+          disabled={exporting}
+          style={{ flex: 'none', marginLeft: 'auto', padding: '6px 12px', fontSize: 12 }}
+        >
+          {exporting ? 'Exporting…' : 'Export report'}
+        </button>
       </div>
 
       <div
