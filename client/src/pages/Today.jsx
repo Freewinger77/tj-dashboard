@@ -14,6 +14,7 @@ import {
   setStationPause,
 } from '../lib/api.js';
 import { relativeTime } from '../lib/format.js';
+import { startOfHelsinkiWeek } from '../lib/helsinki.js';
 import { PageHeader } from '../components/layout/Shell.jsx';
 import HelpTip from '../components/ui/HelpTip.jsx';
 import Skeleton from '../components/ui/Skeleton.jsx';
@@ -54,25 +55,11 @@ function helsinkiDateLabel(date = new Date()) {
   }).format(date);
 }
 
-function startOfHelsinkiWeek(date = new Date()) {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Europe/Helsinki',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    weekday: 'short',
-  }).formatToParts(date);
-  const map = Object.fromEntries(parts.map((p) => [p.type, p.value]));
-  const utc = Date.UTC(Number(map.year), Number(map.month) - 1, Number(map.day));
-  const weekdayIndex = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6 }[map.weekday] ?? 0;
-  return new Date(utc - weekdayIndex * 86400000);
-}
-
 function weekWindowLabel() {
   const start = startOfHelsinkiWeek();
   const end = new Date();
   const fmtD = (d, opts) =>
-    new Intl.DateTimeFormat('en-GB', { ...opts, timeZone: 'UTC' }).format(d);
+    new Intl.DateTimeFormat('en-GB', { ...opts, timeZone: 'Europe/Helsinki' }).format(d);
   return `${fmtD(start, { weekday: 'short', day: 'numeric' })} – ${fmtD(end, {
     weekday: 'short',
     day: 'numeric',
@@ -300,12 +287,17 @@ export default function TodayPage() {
   const title = `${greeting()}, Pyry`;
   const subtitle = `${helsinkiDateLabel()}${updatedLabel ? ` · updated ${updatedLabel}` : ''}`;
 
-  const dueMult = byType.due_soon?.multiplier;
-  const passedMult = byType.passed?.multiplier;
-  const maxMult = Math.max(dueMult || 0, passedMult || 0, 1);
   const weekLoading = statsQ.isLoading || analyticsQ.isLoading;
-  const valueLoading = measurementQ.isLoading;
+  const valueLoading = measurementQ.isLoading || analyticsQ.isLoading;
   const poolLoading = leadPoolQ.isLoading || leadPool?.status === 'running';
+
+  const attributedTotal =
+    analyticsQ.data?.summary?.bookingsAfterWhatsApp ?? headline?.bookings_observed ?? null;
+  const attributedByCampaign = analyticsQ.data?.summary?.bookingsAfterWhatsAppByCampaign || {};
+  const attributedDue = attributedByCampaign.due_soon ?? byType.due_soon?.bookings_observed ?? 0;
+  const attributedPassed = attributedByCampaign.passed ?? byType.passed?.bookings_observed ?? 0;
+  const attributedBarMax = Math.max(attributedDue, attributedPassed, 1);
+  const incremental = headline?.bookings_incremental;
 
   return (
     <>
@@ -482,90 +474,87 @@ export default function TodayPage() {
                   Performance →
                 </Link>
               </div>
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(4,1fr)',
-                  alignItems: 'start',
-                  padding: 20,
-                }}
-              >
-                <WeekKpi
-                  label="Sent"
-                  value={fmt(week.sent)}
-                  hint="this week"
-                  first
-                  loading={weekLoading}
-                />
-                <WeekKpi
-                  label="Delivered"
-                  value={fmt(weekDelivered)}
-                  hint={deliveredRate != null ? `${deliveredRate}% of sent` : '—'}
-                  loading={weekLoading}
-                />
-                <WeekKpi
-                  label="Replied"
-                  value={fmt(week.replied)}
-                  hint={
-                    weekDelivered
-                      ? `${pct(week.replied, weekDelivered)}% of delivered`
-                      : week.sent
-                        ? `${pct(week.replied, week.sent)}% of sent`
-                        : '—'
-                  }
-                  loading={weekLoading}
-                />
-                <WeekKpi
-                  label="Booked"
-                  value={fmt(weekBooked)}
-                  hint={week.sent ? `${pct(weekBooked, week.sent)}% of sent` : '—'}
-                  green
-                  loading={weekLoading}
-                />
-              </div>
-              <div style={{ padding: '0 20px 20px' }}>
-                <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: 64 }}>
-                  {weekLoading
-                    ? Array.from({ length: 8 }).map((_, i) => (
-                        <Skeleton key={i} className="w-full" style={{ height: `${20 + (i % 4) * 12}%`, flex: 1 }} />
-                      ))
-                    : (weekBars.length ? weekBars : Array.from({ length: 8 }, () => ({ h: '12%', c: 'rgba(79,80,127,.18)' }))).map(
-                    (b, i) => (
-                      <div
-                        key={i}
-                        style={{
-                          flex: 1,
-                          display: 'flex',
-                          flexDirection: 'column',
-                          justifyContent: 'flex-end',
-                          height: '100%',
-                        }}
-                      >
+              {weekLoading ? (
+                <PanelSkeleton rows={4} />
+              ) : (
+                <>
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(4,1fr)',
+                      alignItems: 'start',
+                      padding: 20,
+                    }}
+                  >
+                    <WeekKpi label="Sent" value={fmt(week.sent)} hint="this week" first />
+                    <WeekKpi
+                      label="Delivered"
+                      value={fmt(weekDelivered)}
+                      hint={deliveredRate != null ? `${deliveredRate}% of sent` : '—'}
+                    />
+                    <WeekKpi
+                      label="Replied"
+                      value={fmt(week.replied)}
+                      hint={
+                        weekDelivered
+                          ? `${pct(week.replied, weekDelivered)}% of delivered`
+                          : week.sent
+                            ? `${pct(week.replied, week.sent)}% of sent`
+                            : '—'
+                      }
+                    />
+                    <WeekKpi
+                      label="Booked"
+                      value={fmt(weekBooked)}
+                      hint={week.sent ? `${pct(weekBooked, week.sent)}% of sent` : '—'}
+                      green
+                    />
+                  </div>
+                  <div style={{ padding: '0 20px 20px' }}>
+                    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: 64 }}>
+                      {(weekBars.length
+                        ? weekBars
+                        : Array.from({ length: 8 }, () => ({
+                            h: '12%',
+                            c: 'rgba(79,80,127,.18)',
+                          }))
+                      ).map((b, i) => (
                         <div
+                          key={i}
                           style={{
-                            borderRadius: '3px 3px 0 0',
-                            height: b.h,
-                            background: b.c,
+                            flex: 1,
+                            display: 'flex',
+                            flexDirection: 'column',
+                            justifyContent: 'flex-end',
+                            height: '100%',
                           }}
-                        />
-                      </div>
-                    )
-                  )}
-                </div>
-                <div
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    marginTop: 8,
-                    fontSize: 10,
-                    color: 'var(--text-muted)',
-                  }}
-                >
-                  <span>8 weeks ago</span>
-                  <span>bookings per week · this week highlighted</span>
-                  <span>now</span>
-                </div>
-              </div>
+                        >
+                          <div
+                            style={{
+                              borderRadius: '3px 3px 0 0',
+                              height: b.h,
+                              background: b.c,
+                            }}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        marginTop: 8,
+                        fontSize: 10,
+                        color: 'var(--text-muted)',
+                      }}
+                    >
+                      <span>8 weeks ago</span>
+                      <span>bookings per week · this week highlighted</span>
+                      <span>now</span>
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           </div>
 
@@ -573,124 +562,142 @@ export default function TodayPage() {
             <div className="rs-panel" style={{ padding: 20 }}>
               <div style={{ fontSize: 14, fontWeight: 600 }}>Value of the programme</div>
               <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 3 }}>
-                All time · {fmt(headline?.leads_contacted)} customers contacted
+                All time ·{' '}
+                {valueLoading ? '…' : `${fmt(headline?.leads_contacted)} customers contacted`}
               </div>
-              <div
-                style={{
-                  marginTop: 18,
-                  background: 'var(--surface-sunken)',
-                  borderRadius: 'var(--radius-md)',
-                  padding: 18,
-                }}
-              >
-                <div
-                  style={{
-                    fontSize: 10,
-                    letterSpacing: '.14em',
-                    textTransform: 'uppercase',
-                    color: 'var(--text-muted)',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 6,
-                  }}
-                >
-                  Incremental bookings
-                  <HelpTip label="About incremental bookings" side="bottom">
-                    Extra bookings above what the control arm would have produced. Always all-time.
-                  </HelpTip>
-                </div>
-                <div
-                  style={{
-                    fontSize: 52,
-                    fontWeight: 600,
-                    letterSpacing: '-.025em',
-                    lineHeight: 1,
-                    marginTop: 10,
-                    fontVariantNumeric: 'tabular-nums',
-                  }}
-                >
-                  {valueLoading ? (
-                    <Skeleton className="h-12 w-28" />
-                  ) : (
-                    fmt(headline?.bookings_incremental, 0)
-                  )}
-                </div>
-                <div
-                  style={{
-                    fontSize: 12,
-                    color: 'rgba(0,0,0,.55)',
-                    marginTop: 10,
-                    lineHeight: 1.45,
-                  }}
-                >
-                  Bookings above what the control arm would have produced on its own.{' '}
-                  <b style={{ color: '#000' }}>
-                    {headline?.multiplier != null
-                      ? `${Number(headline.multiplier).toFixed(2)}×`
-                      : '—'}
-                  </b>{' '}
-                  the control rate.
-                </div>
-              </div>
-              <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <div style={{ fontSize: 13, color: 'rgba(0,0,0,.55)' }}>Due soon</div>
-                  <div style={{ fontSize: 13, fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>
-                    {dueMult != null ? `${Number(dueMult).toFixed(2)}×` : '—'}
-                  </div>
-                </div>
-                <div
-                  style={{
-                    height: 6,
-                    borderRadius: 'var(--radius-pill)',
-                    background: 'rgba(0,0,0,.06)',
-                    overflow: 'hidden',
-                  }}
-                >
+              {valueLoading ? (
+                <PanelSkeleton rows={3} />
+              ) : (
+                <>
                   <div
                     style={{
-                      width: `${dueMult != null ? Math.min(100, (dueMult / maxMult) * 100) : 0}%`,
-                      height: '100%',
-                      background: 'var(--brand-logo-indigo)',
+                      marginTop: 18,
+                      background: 'var(--surface-sunken)',
+                      borderRadius: 'var(--radius-md)',
+                      padding: 18,
                     }}
-                  />
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <div style={{ fontSize: 13, color: 'rgba(0,0,0,.55)' }}>Passed</div>
-                  <div style={{ fontSize: 13, fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>
-                    {passedMult != null ? `${Number(passedMult).toFixed(2)}×` : '—'}
+                  >
+                    <div
+                      style={{
+                        fontSize: 10,
+                        letterSpacing: '.14em',
+                        textTransform: 'uppercase',
+                        color: 'var(--text-muted)',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 6,
+                      }}
+                    >
+                      Attributed bookings
+                      <HelpTip label="About attributed bookings" side="bottom">
+                        Registration-matched bookings after WhatsApp outreach. The overall attributed
+                        count — all time.
+                      </HelpTip>
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 52,
+                        fontWeight: 600,
+                        letterSpacing: '-.025em',
+                        lineHeight: 1,
+                        marginTop: 10,
+                        fontVariantNumeric: 'tabular-nums',
+                      }}
+                    >
+                      {fmt(attributedTotal, 0)}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 12,
+                        color: 'rgba(0,0,0,.55)',
+                        marginTop: 10,
+                        lineHeight: 1.45,
+                      }}
+                    >
+                      Registration-matched bookings after outreach. Incremental lift is{' '}
+                      <b style={{ color: '#000' }}>{fmt(incremental, 0)}</b>
+                      {headline?.multiplier != null
+                        ? ` · ${Number(headline.multiplier).toFixed(2)}× control`
+                        : ''}
+                      .
+                    </div>
                   </div>
-                </div>
-                <div
-                  style={{
-                    height: 6,
-                    borderRadius: 'var(--radius-pill)',
-                    background: 'rgba(0,0,0,.06)',
-                    overflow: 'hidden',
-                  }}
-                >
-                  <div
+                  <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    <div
+                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
+                    >
+                      <div style={{ fontSize: 13, color: 'rgba(0,0,0,.55)' }}>Due soon</div>
+                      <div
+                        style={{
+                          fontSize: 13,
+                          fontWeight: 500,
+                          fontVariantNumeric: 'tabular-nums',
+                        }}
+                      >
+                        {fmt(attributedDue)}
+                      </div>
+                    </div>
+                    <div
+                      style={{
+                        height: 6,
+                        borderRadius: 'var(--radius-pill)',
+                        background: 'rgba(0,0,0,.06)',
+                        overflow: 'hidden',
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: `${Math.min(100, (attributedDue / attributedBarMax) * 100)}%`,
+                          height: '100%',
+                          background: 'var(--brand-logo-indigo)',
+                        }}
+                      />
+                    </div>
+                    <div
+                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
+                    >
+                      <div style={{ fontSize: 13, color: 'rgba(0,0,0,.55)' }}>Passed</div>
+                      <div
+                        style={{
+                          fontSize: 13,
+                          fontWeight: 500,
+                          fontVariantNumeric: 'tabular-nums',
+                        }}
+                      >
+                        {fmt(attributedPassed)}
+                      </div>
+                    </div>
+                    <div
+                      style={{
+                        height: 6,
+                        borderRadius: 'var(--radius-pill)',
+                        background: 'rgba(0,0,0,.06)',
+                        overflow: 'hidden',
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: `${Math.min(100, (attributedPassed / attributedBarMax) * 100)}%`,
+                          height: '100%',
+                          background: 'rgba(79,80,127,.5)',
+                        }}
+                      />
+                    </div>
+                  </div>
+                  <Link
+                    to="/performance?method=attributed"
                     style={{
-                      width: `${passedMult != null ? Math.min(100, (passedMult / maxMult) * 100) : 0}%`,
-                      height: '100%',
-                      background: 'rgba(79,80,127,.5)',
+                      marginTop: 16,
+                      display: 'inline-block',
+                      fontSize: 13,
+                      fontWeight: 500,
+                      color: 'var(--brand-logo-indigo)',
+                      textDecoration: 'none',
                     }}
-                  />
-                </div>
-              </div>
-              {!measurementQ.data?.freshness?.holdout_table_ready && (
-                <div
-                  style={{
-                    marginTop: 16,
-                    paddingTop: 14,
-                    borderTop: '1px solid var(--border-subtle)',
-                    fontSize: 11,
-                    color: 'var(--text-muted)',
-                    lineHeight: 1.5,
-                  }}
-                >
-                  Control arm is observational until the holdout table is installed.
-                </div>
+                  >
+                    See the breakdown →
+                  </Link>
+                </>
               )}
             </div>
 
@@ -937,7 +944,7 @@ export default function TodayPage() {
               {new Intl.DateTimeFormat('en-GB', {
                 weekday: 'short',
                 day: 'numeric',
-                timeZone: 'UTC',
+                timeZone: 'Europe/Helsinki',
               }).format(startOfHelsinkiWeek())}{' '}
               –{' '}
               {new Intl.DateTimeFormat('en-GB', {
@@ -947,102 +954,117 @@ export default function TodayPage() {
               }).format(new Date())}
             </div>
           </div>
-          <div style={{ marginTop: 14, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-            <div>
-              <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Sent</div>
-              <div
-                style={{
-                  fontSize: 28,
-                  fontWeight: 600,
-                  marginTop: 3,
-                  letterSpacing: '-.02em',
-                  fontVariantNumeric: 'tabular-nums',
-                }}
-              >
-                {weekLoading ? <Skeleton className="h-8 w-16" /> : fmt(week.sent)}
+          {weekLoading ? (
+            <PanelSkeleton rows={2} />
+          ) : (
+            <>
+              <div style={{ marginTop: 14, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                <div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Sent</div>
+                  <div
+                    style={{
+                      fontSize: 28,
+                      fontWeight: 600,
+                      marginTop: 3,
+                      letterSpacing: '-.02em',
+                      fontVariantNumeric: 'tabular-nums',
+                    }}
+                  >
+                    {fmt(week.sent)}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Booked</div>
+                  <div
+                    style={{
+                      fontSize: 28,
+                      fontWeight: 600,
+                      marginTop: 3,
+                      letterSpacing: '-.02em',
+                      color: 'rgb(40,150,70)',
+                      fontVariantNumeric: 'tabular-nums',
+                    }}
+                  >
+                    {fmt(weekBooked)}
+                  </div>
+                </div>
               </div>
-            </div>
-            <div>
-              <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Booked</div>
-              <div
-                style={{
-                  fontSize: 28,
-                  fontWeight: 600,
-                  marginTop: 3,
-                  letterSpacing: '-.02em',
-                  color: 'rgb(40,150,70)',
-                  fontVariantNumeric: 'tabular-nums',
-                }}
-              >
-                {weekLoading ? <Skeleton className="h-8 w-16" /> : fmt(weekBooked)}
-              </div>
-            </div>
-          </div>
-          <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-muted)' }}>
-            {weekLoading ? (
-              <Skeleton className="h-3 w-40" />
-            ) : (
-              <>
+              <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-muted)' }}>
                 {week.sent ? `${pct(weekBooked, week.sent)}% of sent booked` : '—'} ·{' '}
                 {week.sent ? `${pct(week.replied, week.sent)}% replied` : '—'}
-              </>
-            )}
-          </div>
+              </div>
+            </>
+          )}
         </div>
 
-        <div className="rs-panel" style={{ padding: 16 }}>
-          <div
-            style={{
-              fontSize: 11,
-              letterSpacing: '.14em',
-              textTransform: 'uppercase',
-              color: 'var(--text-muted)',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-            }}
-          >
-            Incremental bookings
-            <HelpTip label="About incremental bookings" side="bottom">
-              Extra bookings above what the control arm would have produced. Always all-time.
-            </HelpTip>
-          </div>
-          <div
-            style={{
-              fontSize: 44,
-              fontWeight: 600,
-              letterSpacing: '-.03em',
-              marginTop: 8,
-              lineHeight: 1,
-              fontVariantNumeric: 'tabular-nums',
-            }}
-          >
-            {valueLoading ? (
-              <Skeleton className="h-11 w-24" />
-            ) : (
-              fmt(headline?.bookings_incremental, 0)
-            )}
-          </div>
-          <div style={{ fontSize: 12, color: 'rgba(0,0,0,.55)', marginTop: 8, lineHeight: 1.45 }}>
-            {headline?.multiplier != null ? `${Number(headline.multiplier).toFixed(2)}×` : '—'} the
-            control rate, all time, from {fmt(headline?.leads_contacted)} contacted.
-          </div>
-          <Link
-            to="/performance?method=incremental"
-            style={{
-              marginTop: 14,
-              display: 'inline-block',
-              fontSize: 13,
-              fontWeight: 500,
-              color: 'var(--brand-logo-indigo)',
-              textDecoration: 'none',
-            }}
-          >
-            See the breakdown →
-          </Link>
+        <div className="rs-panel" style={{ padding: 16, marginBottom: 16 }}>
+          {valueLoading ? (
+            <PanelSkeleton rows={2} />
+          ) : (
+            <>
+              <div
+                style={{
+                  fontSize: 11,
+                  letterSpacing: '.14em',
+                  textTransform: 'uppercase',
+                  color: 'var(--text-muted)',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                }}
+              >
+                Attributed bookings
+                <HelpTip label="About attributed bookings" side="bottom">
+                  Registration-matched bookings after WhatsApp outreach. Overall count — all time.
+                </HelpTip>
+              </div>
+              <div
+                style={{
+                  fontSize: 44,
+                  fontWeight: 600,
+                  letterSpacing: '-.03em',
+                  marginTop: 8,
+                  lineHeight: 1,
+                  fontVariantNumeric: 'tabular-nums',
+                }}
+              >
+                {fmt(attributedTotal, 0)}
+              </div>
+              <div style={{ fontSize: 12, color: 'rgba(0,0,0,.55)', marginTop: 8, lineHeight: 1.45 }}>
+                Incremental lift {fmt(incremental, 0)}
+                {headline?.multiplier != null
+                  ? ` · ${Number(headline.multiplier).toFixed(2)}× control`
+                  : ''}
+                , from {fmt(headline?.leads_contacted)} contacted.
+              </div>
+              <Link
+                to="/performance?method=attributed"
+                style={{
+                  marginTop: 14,
+                  display: 'inline-block',
+                  fontSize: 13,
+                  fontWeight: 500,
+                  color: 'var(--brand-logo-indigo)',
+                  textDecoration: 'none',
+                }}
+              >
+                See the breakdown →
+              </Link>
+            </>
+          )}
         </div>
       </div>
     </>
+  );
+}
+
+function PanelSkeleton({ rows = 3 }) {
+  return (
+    <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {Array.from({ length: rows }).map((_, i) => (
+        <Skeleton key={i} className="h-8 w-full" />
+      ))}
+    </div>
   );
 }
 

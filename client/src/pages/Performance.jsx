@@ -8,6 +8,12 @@ import {
   getStationPause,
   pollMessageStatuses,
 } from '../lib/api.js';
+import {
+  formatHelsinkiDate,
+  isCaptureStale,
+  startOfHelsinkiMonth,
+  startOfHelsinkiWeek,
+} from '../lib/helsinki.js';
 import { PageHeader } from '../components/layout/Shell.jsx';
 import HelpTip from '../components/ui/HelpTip.jsx';
 import Skeleton from '../components/ui/Skeleton.jsx';
@@ -38,41 +44,14 @@ function pct(part, whole) {
   return Math.round((part / whole) * 100);
 }
 
-function startOfHelsinkiWeek(date = new Date()) {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Europe/Helsinki',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    weekday: 'short',
-  }).formatToParts(date);
-  const map = Object.fromEntries(parts.map((p) => [p.type, p.value]));
-  const utc = Date.UTC(Number(map.year), Number(map.month) - 1, Number(map.day));
-  const weekdayIndex = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6 }[map.weekday] ?? 0;
-  return new Date(utc - weekdayIndex * 86400000);
-}
-
-function startOfHelsinkiMonth(date = new Date()) {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Europe/Helsinki',
-    year: 'numeric',
-    month: '2-digit',
-  }).formatToParts(date);
-  const map = Object.fromEntries(parts.map((p) => [p.type, p.value]));
-  return new Date(Date.UTC(Number(map.year), Number(map.month) - 1, 1));
-}
-
 function periodWindowLabel(period) {
-  const fmtDate = (d) =>
-    new Intl.DateTimeFormat('en-GB', {
-      day: 'numeric',
-      month: 'short',
-      year: 'numeric',
-      timeZone: 'UTC',
-    }).format(d);
   const now = new Date();
-  if (period === 'week') return `${fmtDate(startOfHelsinkiWeek(now))} – ${fmtDate(now)}`;
-  if (period === 'month') return `${fmtDate(startOfHelsinkiMonth(now))} – ${fmtDate(now)}`;
+  if (period === 'week') {
+    return `${formatHelsinkiDate(startOfHelsinkiWeek(now))} – ${formatHelsinkiDate(now)}`;
+  }
+  if (period === 'month') {
+    return `${formatHelsinkiDate(startOfHelsinkiMonth(now))} – ${formatHelsinkiDate(now)}`;
+  }
   return 'All reachable due_soon / passed leads';
 }
 
@@ -164,12 +143,8 @@ export default function PerformancePage() {
     : null;
   const bookingDataThrough = Math.max(lastBookingAt || 0, lastCaptureAt || 0) || null;
 
-  // Calendar month/week can look "empty" while sends continue if capture is behind.
-  const attributedCoverageGap =
-    !isNaN(cutoff) &&
-    cutoff > 0 &&
-    bookingDataThrough != null &&
-    bookingDataThrough < cutoff;
+  // Only warn when capture itself is older than a week — not on a fresh Monday rollover.
+  const showStaleBanner = !isNaN(cutoff) && isCaptureStale(bookingDataThrough, 7);
 
   const priorMonthBookings = useMemo(() => {
     if (period !== 'month') return null;
@@ -271,7 +246,7 @@ export default function PerformancePage() {
             ? passed.bookings_observed / passed.leads_contacted
             : null,
         bookingDataThrough,
-        captureStale: Boolean(measurement?.freshness?.stale || attributedCoverageGap),
+        captureStale: showStaleBanner,
         generatedAt: new Date(),
       });
     } catch (err) {
@@ -421,7 +396,7 @@ export default function PerformancePage() {
             </div>
           </div>
 
-          {!isIncremental && (attributedCoverageGap || measurement?.freshness?.stale) && (
+          {!isIncremental && showStaleBanner && (
             <div
               style={{
                 margin: '0 0 0',
@@ -526,26 +501,6 @@ export default function PerformancePage() {
                           not change this number. Attributed for the selected period is{' '}
                           <b style={{ color: '#000' }}>{fmt(attributedCount)}</b>.
                         </>
-                      ) : attributedCoverageGap && attributedCount === 0 ? (
-                        <>
-                          No new registration matches since the last capture
-                          {bookingDataThrough
-                            ? ` (${new Intl.DateTimeFormat('en-GB', {
-                                day: 'numeric',
-                                month: 'short',
-                                timeZone: 'Europe/Helsinki',
-                              }).format(new Date(bookingDataThrough))})`
-                            : ''}
-                          . Sent/delivered above still update live — bookings need a fresh capture.
-                          {priorMonthBookings?.count ? (
-                            <>
-                              {' '}
-                              Prior month had <b style={{ color: '#000' }}>{priorMonthBookings.count}</b>.
-                            </>
-                          ) : null}{' '}
-                          Incremental lift stays all-time at{' '}
-                          <b style={{ color: '#000' }}>{fmt(incremental, 0)}</b>.
-                        </>
                       ) : (
                         <>
                           Registration-matched bookings for{' '}
@@ -645,9 +600,7 @@ export default function PerformancePage() {
                           lineHeight: 1.45,
                         }}
                       >
-                        {attributedCoverageGap
-                          ? 'No captured bookings in this period yet — chart follows the same capture window as the big number.'
-                          : 'No bookings in this period.'}
+                        No bookings in this period yet.
                       </div>
                     ) : (
                       <div
