@@ -84,3 +84,22 @@ export async function commitBookingCapture(payload) {
   const { data } = await api.post('/capture/commit', payload);
   return data;
 }
+
+export async function fetchMeasurement(refresh = false) {
+  const { data } = await api.get('/measurement', {
+    params: refresh ? { refresh: 1 } : undefined,
+  });
+  return data;
+}
+
+export async function fetchMeasurementRoi(payload) {
+  const { data } = await api.post('/measurement/roi', payload);
+  return data;
+}
+
+export async function expireOverdueReminders(olderThanDays = 14) {
+  const { data } = await api.post('/feeder/expire-overdue-reminders', {
+    older_than_days: olderThanDays,
+  });
+  return data;
+}

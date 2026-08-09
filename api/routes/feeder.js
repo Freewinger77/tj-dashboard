@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { supabase } from '../lib/supabase.js';
 import axios from 'axios';
+import { assertNoHoldoutLeak } from '../lib/measurement.js';
 
 const router = Router();
 
@@ -44,13 +45,88 @@ router.post('/trigger', async (req, res) => {
   const type = validTypes.includes(lead_type) ? lead_type : 'both';
 
   try {
-    axios.post(webhookUrl, { max_leads_to_send: count, lead_type: type }, { timeout: 300_000 })
-      .catch(err => console.error('[feeder-bg]', err.message));
+    // Sacred control arm: tell the worker to exclude holdouts, and verify
+    // no existing holdout phone already has a session (leak detector).
+    const { data: holdoutRows, error: holdoutErr } = await supabase
+      .from('tj_holdout_assignment')
+      .select('lead_id');
+    const holdoutReady = !holdoutErr;
+    const holdoutCount = holdoutReady ? (holdoutRows || []).length : 0;
 
-    res.json({ ok: true, triggered: count, lead_type: type, triggered_at: new Date().toISOString() });
+    if (holdoutReady && holdoutCount > 0) {
+      const { data: holdoutLeads } = await supabase
+        .from('tj_csv_leads')
+        .select('normalized_phone')
+        .in(
+          'id',
+          holdoutRows.map((r) => r.lead_id)
+        );
+      const phones = (holdoutLeads || []).map((r) => r.normalized_phone).filter(Boolean);
+      const leak = await assertNoHoldoutLeak(phones);
+      if (!leak.ok) {
+        console.error('[feeder] HOLDOUT LEAK — refusing trigger', leak.blocked);
+        return res.status(409).json({
+          error: 'Holdout leak detected — sessions exist for held-out leads. Trigger blocked.',
+          blocked: leak.blocked,
+        });
+      }
+    }
+
+    axios
+      .post(
+        webhookUrl,
+        {
+          max_leads_to_send: count,
+          lead_type: type,
+          exclude_holdout: true,
+          holdout_table_ready: holdoutReady,
+          holdout_count: holdoutCount,
+        },
+        { timeout: 300_000 }
+      )
+      .catch((err) => console.error('[feeder-bg]', err.message));
+
+    res.json({
+      ok: true,
+      triggered: count,
+      lead_type: type,
+      triggered_at: new Date().toISOString(),
+      exclude_holdout: true,
+      holdout_count: holdoutCount,
+    });
   } catch (err) {
     console.error('[feeder]', err.message);
     res.status(502).json({ error: 'Failed to trigger feeder', detail: err.message });
+  }
+});
+
+/** Expire overdue reminder targets older than N days before re-enabling scheduler. */
+router.post('/expire-overdue-reminders', async (req, res) => {
+  const olderThanDays = Number(req.body?.older_than_days) || 14;
+  const cutoff = new Date(Date.now() - olderThanDays * 86_400_000).toISOString();
+  try {
+    const { data, error } = await supabase
+      .from('tj_outbound_sessions')
+      .update({
+        stop_reminders: true,
+        stop_reason: 'expired_overdue_backlog',
+        next_reminder_at: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('stop_reminders', false)
+      .lt('next_reminder_at', cutoff)
+      .select('id');
+
+    if (error) throw error;
+    res.json({
+      ok: true,
+      expired: (data || []).length,
+      older_than_days: olderThanDays,
+      cutoff,
+    });
+  } catch (err) {
+    console.error('[expire-overdue]', err);
+    res.status(500).json({ error: err.message });
   }
 });
 
