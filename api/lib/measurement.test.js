@@ -6,6 +6,8 @@ import {
   buildMeasurementLeads,
   buildCaptureCoverage,
   roiFromUplift,
+  applyOutageBookingAdjustment,
+  isInWaOutage,
 } from './measurement.js';
 
 test('deadlineBin buckets match spec', () => {
@@ -138,6 +140,45 @@ test('capture coverage marks known-bad weeks incomplete', () => {
   assert.equal(bad.is_complete, false);
   assert.equal(bad.known_bad, true);
   assert.equal(good.is_complete, true);
+});
+
+test('WA outage treated lag bookings are excluded from uplift', () => {
+  assert.equal(isInWaOutage('2026-07-01'), true);
+  assert.equal(isInWaOutage('2026-06-22'), false);
+  assert.equal(isInWaOutage('2026-07-27'), false);
+
+  const leads = [
+    ...Array.from({ length: 50 }, (_, i) => ({
+      lead_type: 'due_soon',
+      deadline_bin: 'd11_20',
+      station_name: 'Laukaa',
+      arm: 'treated',
+      booked: true,
+      booked_at: i < 20 ? '2026-07-01' : '2026-08-01',
+      tj_own_reminder: false,
+    })),
+    ...Array.from({ length: 100 }, (_, i) => ({
+      lead_type: 'due_soon',
+      deadline_bin: 'd11_20',
+      station_name: 'Laukaa',
+      arm: 'control',
+      booked: i < 10,
+      booked_at: i < 10 ? '2026-07-01' : null,
+      tj_own_reminder: false,
+    })),
+  ];
+
+  const raw = computeStandardizedUplift(leads);
+  const { leads: adjusted, excluded } = applyOutageBookingAdjustment(leads);
+  const clean = computeStandardizedUplift(adjusted);
+
+  assert.equal(excluded, 20);
+  assert.equal(raw.bookings_observed, 50);
+  assert.equal(clean.bookings_observed, 30);
+  // Control bookings inside the outage stay — only treated lag is dropped.
+  assert.equal(clean.bookings_expected, raw.bookings_expected);
+  assert.ok(clean.bookings_incremental < raw.bookings_incremental);
+  assert.ok(clean.multiplier < raw.multiplier);
 });
 
 test('ROI break-even fee uses live uplift inputs', () => {

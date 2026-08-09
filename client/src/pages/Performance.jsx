@@ -28,7 +28,7 @@ const METHOD_HELP = {
   attributed:
     'Registration-matched bookings after a WhatsApp outreach. Follows the Week / Month / All time control above.',
   incremental:
-    'Extra bookings above what the control arm would have produced. Scaled to the selected Week / Month / All time window using the measured multiplier.',
+    'Extra bookings above what the control arm would have produced. Uses the measured multiplier with WA-outage lag bookings excluded (Jun 23–Jul 26 silence had a different claim rate). Scaled to the selected period.',
 };
 
 function fmt(n, digits = 0) {

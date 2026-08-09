@@ -7,6 +7,15 @@ const STALE_CAPTURE_DAYS = 10;
 
 const KNOWN_BAD_WEEKS = new Set(['2026-07-06', '2026-07-13']);
 
+/**
+ * Full WhatsApp outbound silence (Helsinki calendar days, inclusive).
+ * During this window attributed detections continued as a lagged "claim" tail
+ * at ~half the active rate — different dynamics than active outreach. Those
+ * treated bookings must not inflate the all-time uplift multiplier.
+ * @see reports/tj-whatsapp-pause-impact.md
+ */
+export const WA_OUTAGE = { start: '2026-06-23', end: '2026-07-26' };
+
 let cache = { at: 0, payload: null, promise: null };
 
 function parseDate(value) {
@@ -219,6 +228,27 @@ export function buildCaptureCoverage(snapshots) {
       ? Math.floor((Date.now() - lastCaptureAt.getTime()) / 86_400_000)
       : null,
   };
+}
+
+export function isInWaOutage(iso) {
+  const d = parseDate(iso);
+  return Boolean(d && d >= WA_OUTAGE.start && d <= WA_OUTAGE.end);
+}
+
+/**
+ * Drop treated bookings whose booked_at falls inside the WA outage.
+ * Control/holdout organic bookings in the same window stay — only the
+ * messaged lag/"claim" tail had the different rate.
+ */
+export function applyOutageBookingAdjustment(leads) {
+  let excluded = 0;
+  const next = leads.map((l) => {
+    if (l.arm !== 'treated' || !l.booked) return l;
+    if (!isInWaOutage(l.booked_at)) return l;
+    excluded += 1;
+    return { ...l, booked: false, booked_excluded_outage: true };
+  });
+  return { leads: next, excluded };
 }
 
 export function buildMeasurementLeads(csvLeads, holdoutIds) {
@@ -439,7 +469,8 @@ export async function getMeasurementReport({ force = false } = {}) {
     ]);
 
     const coverage = buildCaptureCoverage(snapshots);
-    const leads = buildMeasurementLeads(csvLeads, holdout.ids);
+    const rawLeads = buildMeasurementLeads(csvLeads, holdout.ids);
+    const { leads, excluded: outageExcludedTreatedBookings } = applyOutageBookingAdjustment(rawLeads);
 
     const headline = computeStandardizedUplift(leads);
     const byType = {
@@ -546,14 +577,21 @@ export async function getMeasurementReport({ force = false } = {}) {
         holdout_n: nHoldout,
         holdout_table_ready: holdout.exists,
         note:
-          'Headline uplift uses deadline-bin standardisation on reachable due_soon/passed leads. Snapshot capture is batchy — incomplete weeks are reported here and must not be read as zero demand.',
+          'Headline uplift uses deadline-bin standardisation on reachable due_soon/passed leads. Treated bookings dated inside the Jun 23–Jul 26 WA outage (lag/claim tail) are excluded from uplift — that window had a different rate and has not recurred. Snapshot capture is batchy — incomplete weeks are reported here and must not be read as zero demand.',
+        wa_outage: {
+          start: WA_OUTAGE.start,
+          end: WA_OUTAGE.end,
+          treated_bookings_excluded: outageExcludedTreatedBookings,
+        },
       },
       arms: {
         treated: nTreated,
         control: nControl,
         holdout: nHoldout,
         treated_booked: leads.filter((l) => l.arm === 'treated' && l.booked).length,
+        treated_booked_raw: rawLeads.filter((l) => l.arm === 'treated' && l.booked).length,
         control_booked: leads.filter((l) => l.arm === 'control' && l.booked).length,
+        outage_excluded_treated_bookings: outageExcludedTreatedBookings,
       },
       headline: {
         bookings_observed: headline.bookings_observed,
@@ -567,6 +605,7 @@ export async function getMeasurementReport({ force = false } = {}) {
         bins_used: headline.bins_used,
         bins_skipped: headline.bins_skipped,
         skipped_bins: headline.skipped,
+        outage_excluded_treated_bookings: outageExcludedTreatedBookings,
       },
       by_lead_type: {
         due_soon: {

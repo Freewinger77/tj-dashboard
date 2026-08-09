@@ -614,8 +614,8 @@ export default function TodayPage() {
                         lineHeight: 1.45,
                       }}
                     >
-                      Registration-matched bookings after outreach. Incremental lift is{' '}
-                      <b style={{ color: '#000' }}>{fmt(incremental, 0)}</b>
+                      Registration-matched after outreach. Incremental lift (excl. WA outage
+                      lag) is <b style={{ color: '#000' }}>{fmt(incremental, 0)}</b>
                       {headline?.multiplier != null
                         ? ` · ${Number(headline.multiplier).toFixed(2)}× control`
                         : ''}
@@ -1031,7 +1031,7 @@ export default function TodayPage() {
                 {fmt(attributedTotal, 0)}
               </div>
               <div style={{ fontSize: 12, color: 'rgba(0,0,0,.55)', marginTop: 8, lineHeight: 1.45 }}>
-                Incremental lift {fmt(incremental, 0)}
+                Incremental lift (excl. outage lag) {fmt(incremental, 0)}
                 {headline?.multiplier != null
                   ? ` · ${Number(headline.multiplier).toFixed(2)}× control`
                   : ''}
