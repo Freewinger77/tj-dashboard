@@ -6,7 +6,7 @@ function getInitial() {
   if (typeof window === 'undefined') return 'light';
   const stored = localStorage.getItem(STORAGE_KEY);
   if (stored === 'dark' || stored === 'light') return stored;
-  return 'dark';
+  return 'light';
 }
 
 function apply(mode) {

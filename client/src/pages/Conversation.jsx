@@ -13,7 +13,7 @@ export default function ConversationPage() {
   const location = useLocation();
   const queryClient = useQueryClient();
   const [showInfo, setShowInfo] = useState(false);
-  const returnTo = location.state?.returnTo || '/';
+  const returnTo = location.state?.returnTo || '/conversations';
 
   const customerQ = useQuery({ queryKey: ['customer', phone], queryFn: () => fetchCustomer(phone) });
   const chatQ = useQuery({ queryKey: ['chat', phone], queryFn: () => fetchChat(phone) });
@@ -29,26 +29,30 @@ export default function ConversationPage() {
   const messages = chatQ.data?.messages;
 
   return (
-    <div className="flex flex-col h-[calc(100dvh-48px)] sm:h-[calc(100dvh-56px)]">
-      <div className="border-b rule bg-[color:var(--color-canvas)]/80 backdrop-blur-sm px-4 sm:px-6 py-2.5 flex items-center gap-3">
+    <div className="flex h-dvh flex-col bg-[color:var(--color-canvas)]">
+      <div className="flex items-center gap-3 border-b rule bg-[color:var(--color-canvas)]/90 px-4 py-2.5 backdrop-blur-sm sm:px-6">
         <Link
           to={returnTo}
-          className="grid size-8 place-items-center rounded-full border rule text-[color:var(--color-ink-3)] hover:text-[color:var(--color-ink)] hover:border-[color:var(--color-rule-strong)] transition-colors"
+          className="grid size-8 place-items-center rounded-lg border rule text-[color:var(--color-ink-3)] transition-colors hover:bg-[color:var(--surface-hover)] hover:text-[color:var(--color-ink)]"
         >
           <ArrowLeft size={16} strokeWidth={1.75} />
         </Link>
-        <div className="flex-1 min-w-0">
+        <div className="min-w-0 flex-1">
           {customerQ.isLoading ? (
             <Skeleton className="h-5 w-48" />
           ) : (
-            <div className="flex items-center gap-2">
-              <span className="text-[13px] font-medium text-[color:var(--color-ink)] truncate">
-                {customer?.name || formatPhone(phone)}
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <span className="truncate text-[14px] font-semibold text-[color:var(--color-ink)]">
+                {customer?.name || 'Customer'}
               </span>
               {customer && <StatusPill status={customer.status} />}
+              {customer?.campaign_type && (
+                <span className="text-[11px] text-[color:var(--color-ink-4)]">
+                  {customer.campaign_type === 'passed' ? 'Passed' : 'Due soon'}
+                </span>
+              )}
             </div>
           )}
-          <div className="text-[11px] text-[color:var(--color-ink-4)]">{formatPhone(phone)}</div>
         </div>
         <button
           type="button"
@@ -63,7 +67,7 @@ export default function ConversationPage() {
             type="button"
             onClick={() => stopMutation.mutate()}
             disabled={stopMutation.isPending}
-            className="hidden sm:inline-flex items-center gap-1.5 rounded-full border border-[color:var(--color-sienna)]/30 px-3 py-1.5 text-[11px] font-medium text-[color:var(--color-sienna)] hover:bg-[color:var(--color-sienna-soft)] transition-colors disabled:opacity-50"
+            className="hidden items-center gap-1.5 rounded-lg border border-[color:var(--color-sienna)]/30 px-3 py-1.5 text-[11px] font-medium text-[color:var(--color-sienna)] transition-colors hover:bg-[color:var(--color-sienna-soft)] disabled:opacity-50 sm:inline-flex"
           >
             {stopMutation.isPending ? (
               <Loader2 size={12} className="animate-spin" />
@@ -122,15 +126,15 @@ function CustomerInfoPanel({ customer, loading, stopMutation, showStop }) {
 
   return (
     <div className="p-5 space-y-5">
-      <h4 className="text-[10px] font-semibold text-[color:var(--color-ink-4)] uppercase tracking-[0.18em]">
-        Customer Info
+      <h4 className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[color:var(--color-ink-4)]">
+        Identity
       </h4>
       <InfoRow icon={Phone} label="Phone" value={formatPhone(customer.number)} />
-      <InfoRow label="Customer ID" value={customer.customer_id} />
-      <InfoRow label="Station ID" value={customer.station_id} />
       <InfoRow label="Campaign" value={customer.campaign_type} />
       <InfoRow label="Template" value={customer.template_name} />
-      <InfoRow label="Reminder Stage" value={customer.reminder_stage} />
+      <InfoRow label="Reminder stage" value={customer.reminder_stage} />
+      <InfoRow label="Customer ID" value={customer.customer_id} />
+      <InfoRow label="Station ID" value={customer.station_id} />
 
       <div className="border-t rule pt-4 space-y-3">
         <h4 className="text-[10px] font-semibold text-[color:var(--color-ink-4)] uppercase tracking-[0.18em]">

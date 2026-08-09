@@ -143,17 +143,17 @@ export default function BookingCapturePage() {
       <ToastContainer toasts={toasts} removeToast={removeToast} />
 
       <div>
-        <h1 className="font-display text-[28px] sm:text-[34px] leading-none font-medium tracking-tight text-balance">
-          Capture bookings
+        <h1 className="font-display text-[28px] font-semibold leading-none tracking-tight sm:text-[32px]">
+          Capture
         </h1>
-        <p className="mt-1.5 sm:mt-2 text-[13px] sm:text-sm text-[color:var(--color-ink-3)]">
-          Upload calendar screenshots, review what the reader found, then save them to the booking snapshots that power attribution.
+        <p className="mt-2 text-[13px] text-[color:var(--color-ink-3)]">
+          Log bookings from calendar screenshots into the snapshots that power attribution.
         </p>
       </div>
 
       <section>
-        <h2 className="mb-3 text-[11px] uppercase tracking-[0.18em] text-[color:var(--color-ink-4)]">
-          1 · Upload
+        <h2 className="mb-3 text-[13px] font-semibold text-[color:var(--color-ink)]">
+          1 · Upload screenshots
         </h2>
         <div className="card px-5 py-4 space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -225,7 +225,7 @@ export default function BookingCapturePage() {
       {rows.length > 0 && (
         <section>
           <h2 className="mb-3 text-[11px] uppercase tracking-[0.18em] text-[color:var(--color-ink-4)]">
-            2 · Review &amp; correct
+            2 · Check what we read
           </h2>
           <div className="card overflow-hidden">
             <div className="overflow-x-auto">

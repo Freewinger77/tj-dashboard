@@ -1,0 +1,333 @@
+/* Generated from Figma Variables. First mode = :root default.
+   FLOAT tokens are unitless — multiply by 1px in calc() where a length is needed. */
+
+:root {
+  --10: 0; /* @kind spacing */
+  --12-2: 12; /* @kind spacing */
+  --12-3: 0; /* @kind spacing */
+  --12: 12; /* @kind spacing */
+  --14: 0; /* @kind spacing */
+  --16-2: 16; /* @kind spacing */
+  --16-3: 16; /* @kind spacing */
+  --16-4: 16; /* @kind spacing */
+  --16: 16; /* @kind spacing */
+  --18: 0; /* @kind spacing */
+  --20-2: 20; /* @kind spacing */
+  --20-3: 20; /* @kind spacing */
+  --20-4: 20; /* @kind spacing */
+  --20: 20; /* @kind spacing */
+  --24-2: 24; /* @kind spacing */
+  --24-3: 24; /* @kind spacing */
+  --24-4: 24; /* @kind spacing */
+  --24: 24; /* @kind spacing */
+  --28-2: 28; /* @kind spacing */
+  --28-3: 28; /* @kind spacing */
+  --28: 28; /* @kind spacing */
+  --32: 32; /* @kind spacing */
+  --4-2: 4; /* @kind spacing */
+  --40-2: 40; /* @kind spacing */
+  --40: 40; /* @kind spacing */
+  --48: 48; /* @kind spacing */
+  --4: 4; /* @kind spacing */
+  --8-2: 8; /* @kind spacing */
+  --8-3: 0; /* @kind spacing */
+  --80-2: 80; /* @kind spacing */
+  --80: 80; /* @kind spacing */
+  --8: 8; /* @kind spacing */
+  --background-1: rgb(255,255,255); /* @kind color */
+  --background-2: rgb(249,249,250); /* @kind color */
+  --background-3: rgba(255,255,255,0.8); /* @kind color */
+  --background-4: rgb(237,238,252); /* @kind color */
+  --background-5: rgb(230,241,253); /* @kind color */
+  --black-100-2: rgb(0,0,0); /* @kind color */
+  --black-100-3: rgb(0,0,0); /* @kind color */
+  --black-100-4: rgb(0,0,0); /* @kind color */
+  --black-100: rgb(0,0,0); /* @kind color */
+  --black-10: rgba(0,0,0,0.1); /* @kind color */
+  --black-20: rgba(0,0,0,0.2); /* @kind color */
+  --black-4-2: rgba(0,0,0,0.04); /* @kind color */
+  --black-4-3: rgba(0,0,0,0.04); /* @kind color */
+  --black-4-4: rgba(0,0,0,0.04); /* @kind color */
+  --black-40: rgba(0,0,0,0.4); /* @kind color */
+  --black-4: rgba(0,0,0,0.04); /* @kind color */
+  --black-80-2: rgba(0,0,0,0.8); /* @kind color */
+  --black-80: rgba(0,0,0,0.8); /* @kind color */
+  --color-1: rgb(230,241,253); /* @kind color */
+  --color-2: rgb(237,238,252); /* @kind color */
+  --font-family: "Inter"; /* @kind font */
+  --font: "Inter"; /* @kind font */
+  --letter-spacing-2: 0; /* @kind spacing */
+  --letter-spacing: 0; /* @kind spacing */
+  --logo-2: rgb(79,80,127); /* @kind color */
+  --logo: rgb(76,152,253); /* @kind color */
+  --primary: var(--black-100); /* @kind color */
+  --radius-4: 4; /* @kind radius */
+  --radius-8: 8; /* @kind radius */
+  --regular-2: 400; /* @kind font */
+  --regular: 400; /* @kind font */
+  --secondary-blue: rgb(125,187,255); /* @kind color */
+  --secondary-green: rgb(113,221,140); /* @kind color */
+  --secondary-indigo: rgb(173,173,251); /* @kind color */
+  --secondary-purple: rgb(184,153,235); /* @kind color */
+  --secondary-red: rgb(255,71,71); /* @kind color */
+  --secondary-yellow: rgb(255,204,0); /* @kind color */
+  --semi-bold: 600; /* @kind font */
+  --semibold: 600; /* @kind font */
+  --size-16: 16; /* @kind font */
+  --size-20: 20; /* @kind font */
+  --size-28: 28; /* @kind font */
+  --white-100: rgb(255,255,255); /* @kind color */
+  --white-10: rgba(255,255,255,0.1); /* @kind color */
+  --white-20: rgba(255,255,255,0.2); /* @kind color */
+  --white-40-2: rgba(255,255,255,0.4); /* @kind color */
+  --white-40: rgba(255,255,255,0.4); /* @kind color */
+}
+
+:root[data-mode="expanded-4"] {
+  --12-2: 16; /* @kind spacing */
+  --12: 16; /* @kind spacing */
+  --16-2: 20; /* @kind spacing */
+  --16-3: 20; /* @kind spacing */
+  --16-4: 20; /* @kind spacing */
+  --16: 20; /* @kind spacing */
+  --20-2: 24; /* @kind spacing */
+  --20-3: 24; /* @kind spacing */
+  --20-4: 24; /* @kind spacing */
+  --20: 24; /* @kind spacing */
+  --24-2: 28; /* @kind spacing */
+  --24-3: 28; /* @kind spacing */
+  --24-4: 28; /* @kind spacing */
+  --24: 28; /* @kind spacing */
+  --28-2: 32; /* @kind spacing */
+  --28-3: 32; /* @kind spacing */
+  --28: 32; /* @kind spacing */
+  --32: 36; /* @kind spacing */
+  --4-2: 8; /* @kind spacing */
+  --40-2: 44; /* @kind spacing */
+  --40: 44; /* @kind spacing */
+  --48: 52; /* @kind spacing */
+  --4: 8; /* @kind spacing */
+  --8-2: 12; /* @kind spacing */
+  --80-2: 84; /* @kind spacing */
+  --80: 84; /* @kind spacing */
+  --8: 12; /* @kind spacing */
+  --radius-4: 4; /* @kind radius */
+  --radius-8: 8; /* @kind radius */
+  --size-16: 20; /* @kind font */
+  --size-20: 24; /* @kind font */
+  --size-28: 32; /* @kind font */
+}
+
+:root[data-mode="expanded-8"] {
+  --12-2: 20; /* @kind spacing */
+  --12: 20; /* @kind spacing */
+  --16-2: 24; /* @kind spacing */
+  --16-3: 24; /* @kind spacing */
+  --16-4: 24; /* @kind spacing */
+  --16: 24; /* @kind spacing */
+  --20-2: 28; /* @kind spacing */
+  --20-3: 28; /* @kind spacing */
+  --20-4: 28; /* @kind spacing */
+  --20: 28; /* @kind spacing */
+  --24-2: 32; /* @kind spacing */
+  --24-3: 32; /* @kind spacing */
+  --24-4: 32; /* @kind spacing */
+  --24: 32; /* @kind spacing */
+  --28-2: 36; /* @kind spacing */
+  --28-3: 36; /* @kind spacing */
+  --28: 36; /* @kind spacing */
+  --32: 40; /* @kind spacing */
+  --4-2: 12; /* @kind spacing */
+  --40-2: 48; /* @kind spacing */
+  --40: 48; /* @kind spacing */
+  --48: 56; /* @kind spacing */
+  --4: 12; /* @kind spacing */
+  --8-2: 16; /* @kind spacing */
+  --80-2: 88; /* @kind spacing */
+  --80: 88; /* @kind spacing */
+  --8: 16; /* @kind spacing */
+  --radius-4: 4; /* @kind radius */
+  --radius-8: 8; /* @kind radius */
+  --size-16: 12; /* @kind font */
+  --size-20: 16; /* @kind font */
+  --size-28: 24; /* @kind font */
+}
+
+:root[data-mode="condensed-4"] {
+  --12-2: 8; /* @kind spacing */
+  --12: 8; /* @kind spacing */
+  --16-2: 12; /* @kind spacing */
+  --16-3: 12; /* @kind spacing */
+  --16-4: 12; /* @kind spacing */
+  --16: 12; /* @kind spacing */
+  --20-2: 16; /* @kind spacing */
+  --20-3: 16; /* @kind spacing */
+  --20-4: 16; /* @kind spacing */
+  --20: 16; /* @kind spacing */
+  --24-2: 20; /* @kind spacing */
+  --24-3: 20; /* @kind spacing */
+  --24-4: 20; /* @kind spacing */
+  --24: 20; /* @kind spacing */
+  --28-2: 24; /* @kind spacing */
+  --28-3: 24; /* @kind spacing */
+  --28: 24; /* @kind spacing */
+  --32: 28; /* @kind spacing */
+  --4-2: 0; /* @kind spacing */
+  --40-2: 36; /* @kind spacing */
+  --40: 36; /* @kind spacing */
+  --48: 44; /* @kind spacing */
+  --4: 0; /* @kind spacing */
+  --8-2: 4; /* @kind spacing */
+  --80-2: 76; /* @kind spacing */
+  --80: 76; /* @kind spacing */
+  --8: 4; /* @kind spacing */
+  --radius-4: 4; /* @kind radius */
+  --radius-8: 8; /* @kind radius */
+  --size-16: 16; /* @kind font */
+  --size-20: 20; /* @kind font */
+  --size-28: 28; /* @kind font */
+}
+
+:root[data-theme="dark"], .dark {
+  --background-1: rgb(51,51,51); /* @kind color */
+  --background-1: rgb(51,51,51); /* @kind color */
+  --background-2: rgba(255,255,255,0.04); /* @kind color */
+  --background-2: rgba(255,255,255,0.04); /* @kind color */
+  --background-3: rgba(0,0,0,0.1); /* @kind color */
+  --background-3: rgba(0,0,0,0.1); /* @kind color */
+  --background-4: rgb(237,238,252); /* @kind color */
+  --background-4: rgba(0,0,0,0.1); /* @kind color */
+  --background-5: rgb(230,241,253); /* @kind color */
+  --background-5: rgba(255,255,255,0.8); /* @kind color */
+  --black-100-2: rgb(255,255,255); /* @kind color */
+  --black-100-2: rgb(255,255,255); /* @kind color */
+  --black-100-3: rgb(255,255,255); /* @kind color */
+  --black-100-3: rgb(255,255,255); /* @kind color */
+  --black-100-4: rgb(255,255,255); /* @kind color */
+  --black-100-4: rgb(255,255,255); /* @kind color */
+  --black-100: rgb(255,255,255); /* @kind color */
+  --black-100: rgb(255,255,255); /* @kind color */
+  --black-10: rgba(255,255,255,0.15); /* @kind color */
+  --black-10: rgba(255,255,255,0.15); /* @kind color */
+  --black-20: rgba(255,255,255,0.2); /* @kind color */
+  --black-20: rgba(255,255,255,0.2); /* @kind color */
+  --black-4-2: rgba(255,255,255,0.1); /* @kind color */
+  --black-4-2: rgba(255,255,255,0.1); /* @kind color */
+  --black-4-3: rgba(255,255,255,0.1); /* @kind color */
+  --black-4-3: rgba(255,255,255,0.1); /* @kind color */
+  --black-4-4: rgba(255,255,255,0.1); /* @kind color */
+  --black-4-4: rgba(255,255,255,0.1); /* @kind color */
+  --black-40: rgba(255,255,255,0.4); /* @kind color */
+  --black-40: rgba(255,255,255,0.4); /* @kind color */
+  --black-4: rgba(255,255,255,0.1); /* @kind color */
+  --black-4: rgba(255,255,255,0.1); /* @kind color */
+  --black-80-2: rgba(255,255,255,0.8); /* @kind color */
+  --black-80-2: rgba(255,255,255,0.8); /* @kind color */
+  --black-80: rgba(255,255,255,0.8); /* @kind color */
+  --black-80: rgba(255,255,255,0.8); /* @kind color */
+  --color-1: rgb(230,241,253); /* @kind color */
+  --color-1: rgb(231,235,245); /* @kind color */
+  --color-2: rgb(231,231,238); /* @kind color */
+  --color-2: rgb(237,238,252); /* @kind color */
+  --logo-2: rgb(237,237,255); /* @kind color */
+  --logo-2: rgb(237,237,255); /* @kind color */
+  --logo: rgb(76,152,253); /* @kind color */
+  --logo: var(--primary); /* @kind color */
+  --primary: var(--secondary-blue); /* @kind color */
+  --primary: var(--secondary-indigo); /* @kind color */
+  --secondary-blue: rgb(10,132,255); /* @kind color */
+  --secondary-blue: rgb(125,187,255); /* @kind color */
+  --secondary-green: rgb(113,221,140); /* @kind color */
+  --secondary-green: rgb(48,209,88); /* @kind color */
+  --secondary-indigo: rgb(173,173,251); /* @kind color */
+  --secondary-indigo: rgb(94,92,230); /* @kind color */
+  --secondary-purple: rgb(184,153,235); /* @kind color */
+  --secondary-purple: rgb(191,90,242); /* @kind color */
+  --secondary-red: rgb(255,69,58); /* @kind color */
+  --secondary-red: rgb(255,71,71); /* @kind color */
+  --secondary-yellow: rgb(255,204,0); /* @kind color */
+  --secondary-yellow: rgb(255,214,10); /* @kind color */
+  --white-100: rgb(0,0,0); /* @kind color */
+  --white-100: rgb(0,0,0); /* @kind color */
+  --white-10: rgba(0,0,0,0.1); /* @kind color */
+  --white-10: rgba(0,0,0,0.1); /* @kind color */
+  --white-20: rgba(0,0,0,0.2); /* @kind color */
+  --white-20: rgba(0,0,0,0.2); /* @kind color */
+  --white-40-2: rgba(0,0,0,0.4); /* @kind color */
+  --white-40-2: rgba(0,0,0,0.4); /* @kind color */
+  --white-40: rgba(0,0,0,0.4); /* @kind color */
+  --white-40: rgba(0,0,0,0.4); /* @kind color */
+}
+
+:root[data-theme="light"], .light {
+  --background-1: rgb(245,245,246); /* @kind color */
+  --background-2: rgb(255,255,255); /* @kind color */
+  --background-3: rgba(0,0,0,0.03); /* @kind color */
+  --background-4: rgba(0,0,0,0.02); /* @kind color */
+  --background-5: rgb(255,255,255); /* @kind color */
+  --black-100-2: rgb(0,0,0); /* @kind color */
+  --black-100-3: rgb(0,0,0); /* @kind color */
+  --black-100-4: rgb(0,0,0); /* @kind color */
+  --black-100: rgb(0,0,0); /* @kind color */
+  --black-10: rgba(0,0,0,0.1); /* @kind color */
+  --black-20: rgba(0,0,0,0.2); /* @kind color */
+  --black-4-2: rgba(0,0,0,0.04); /* @kind color */
+  --black-4-3: rgba(0,0,0,0.04); /* @kind color */
+  --black-4-4: rgba(0,0,0,0.04); /* @kind color */
+  --black-40: rgba(0,0,0,0.4); /* @kind color */
+  --black-4: rgba(0,0,0,0.04); /* @kind color */
+  --black-80-2: rgba(0,0,0,0.8); /* @kind color */
+  --black-80: rgba(0,0,0,0.8); /* @kind color */
+  --color-1: rgb(231,235,245); /* @kind color */
+  --color-2: rgb(231,231,238); /* @kind color */
+  --logo-2: rgb(79,80,127); /* @kind color */
+  --logo: var(--primary); /* @kind color */
+  --primary: var(--secondary-blue); /* @kind color */
+  --secondary-blue: rgb(0,122,255); /* @kind color */
+  --secondary-green: rgb(52,199,89); /* @kind color */
+  --secondary-indigo: rgb(88,86,214); /* @kind color */
+  --secondary-purple: rgb(175,82,222); /* @kind color */
+  --secondary-red: rgb(255,59,48); /* @kind color */
+  --secondary-yellow: rgb(255,204,0); /* @kind color */
+  --white-100: rgb(255,255,255); /* @kind color */
+  --white-10: rgba(255,255,255,0.1); /* @kind color */
+  --white-20: rgba(255,255,255,0.2); /* @kind color */
+  --white-40-2: rgba(255,255,255,0.4); /* @kind color */
+  --white-40: rgba(255,255,255,0.4); /* @kind color */
+}
+
+:root[data-mode="paragraph"] {
+  --10: 10; /* @kind spacing */
+  --12-3: 12; /* @kind spacing */
+  --14: 14; /* @kind spacing */
+  --18: 18; /* @kind spacing */
+  --8-3: 8; /* @kind spacing */
+}
+
+:root[data-mode="sf-pro"] {
+  --font-family: "SF Pro"; /* @kind font */
+  --font: "SF Pro"; /* @kind font */
+  --letter-spacing-2: 0; /* @kind spacing */
+  --letter-spacing: 0; /* @kind spacing */
+}
+
+:root[data-mode="bai-jamjuree"] {
+  --font-family: "Bai Jamjuree"; /* @kind font */
+  --font: "Bai Jamjuree"; /* @kind font */
+  --letter-spacing-2: 0; /* @kind spacing */
+  --letter-spacing: 0; /* @kind spacing */
+}
+
+:root[data-mode="space-grotesk"] {
+  --font-family: "Space Grotesk"; /* @kind font */
+  --font: "Space Grotesk"; /* @kind font */
+  --letter-spacing-2: 0; /* @kind spacing */
+  --letter-spacing: 0; /* @kind spacing */
+}
+
+:root[data-mode="semi-bold-regular"] {
+  --regular-2: 600; /* @kind font */
+  --regular: 600; /* @kind font */
+  --semi-bold: 400; /* @kind font */
+  --semibold: 400; /* @kind font */
+}
