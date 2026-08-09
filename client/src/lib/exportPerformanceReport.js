@@ -209,7 +209,7 @@ export function exportPerformanceReport(snapshot) {
 
   drawHeroCard(
     margin,
-    'Attributed bookings',
+    'Overall bookings',
     fmt(attributedCount),
     attributedBlurb,
     C.blue
