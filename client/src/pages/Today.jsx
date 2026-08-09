@@ -14,13 +14,10 @@ import {
   setStationPause,
 } from '../lib/api.js';
 import { relativeTime } from '../lib/format.js';
-import ProgrammeSnapshot from '../components/ProgrammeSnapshot.jsx';
 import { PageHeader } from '../components/layout/Shell.jsx';
 import HelpTip from '../components/ui/HelpTip.jsx';
 import Skeleton from '../components/ui/Skeleton.jsx';
 import { ToastContainer, useToast } from '../components/ui/Toast.jsx';
-
-const TICKET_EUR = 89;
 
 function fmt(n, digits = 0) {
   if (n == null || Number.isNaN(n)) return '—';
@@ -300,7 +297,7 @@ export default function TodayPage() {
       }).format(new Date(updatedAt))
     : null;
 
-  const title = `${greeting()}`;
+  const title = `${greeting()}, Pyry`;
   const subtitle = `${helsinkiDateLabel()}${updatedLabel ? ` · updated ${updatedLabel}` : ''}`;
 
   const dueMult = byType.due_soon?.multiplier;
@@ -309,90 +306,6 @@ export default function TodayPage() {
   const weekLoading = statsQ.isLoading || analyticsQ.isLoading;
   const valueLoading = measurementQ.isLoading;
   const poolLoading = leadPoolQ.isLoading || leadPool?.status === 'running';
-
-  const attributedByCampaign = analyticsQ.data?.summary?.bookingsAfterWhatsAppByCampaign || {};
-  const attributedDue = attributedByCampaign.due_soon ?? byType.due_soon?.bookings_observed ?? 0;
-  const attributedPassed = attributedByCampaign.passed ?? byType.passed?.bookings_observed ?? 0;
-
-  const snapshot = useMemo(() => {
-    const bookings = analyticsQ.data?.bookingsAfterWhatsApp || [];
-    const summary = analyticsQ.data?.summary || {};
-    const byWeek = new Map();
-    const dueByWeek = new Map();
-    const passedByWeek = new Map();
-    for (const b of bookings) {
-      const ts = Date.parse(b.dorisBookingCreatedAt || b.appointmentAt || 0);
-      if (!Number.isFinite(ts)) continue;
-      const key = startOfHelsinkiWeek(new Date(ts)).toISOString().slice(0, 10);
-      byWeek.set(key, (byWeek.get(key) || 0) + 1);
-      const due = String(b.campaignType || b.campaign_type || '').includes('due');
-      if (due) dueByWeek.set(key, (dueByWeek.get(key) || 0) + 1);
-      else passedByWeek.set(key, (passedByWeek.get(key) || 0) + 1);
-    }
-    const weekKeys = [...byWeek.keys()].sort((a, b) => a.localeCompare(b)).slice(-8);
-    const bookingSeries = weekKeys.map((k) => byWeek.get(k) || 0);
-    const dueSeries = weekKeys.map((k) => dueByWeek.get(k) || 0);
-    const passedSeries = weekKeys.map((k) => passedByWeek.get(k) || 0);
-    const seriesLabels = weekKeys.map((k) =>
-      new Intl.DateTimeFormat('en-GB', {
-        month: 'short',
-        day: 'numeric',
-        timeZone: 'UTC',
-      }).format(new Date(k))
-    );
-
-    const last = bookingSeries[bookingSeries.length - 1] ?? 0;
-    const prev = bookingSeries[bookingSeries.length - 2] ?? 0;
-    const bookingDeltaPct =
-      prev > 0 ? Math.round(((last - prev) / prev) * 1000) / 10 : last > 0 ? 100 : null;
-
-    const contacted = summary.contacted ?? total.sent ?? 0;
-    const overall = summary.bookingsAfterWhatsApp ?? bookings.length;
-    // Prefer due-soon conversion (the ~27% story); fall back to attributed/contacted.
-    const bookingRate =
-      summary.dueSoonBookingConversionRate ??
-      summary.currentBookingConversionRate ??
-      (contacted ? (overall / contacted) * 100 : null);
-    const replyRate = summary.replyRate ?? total.replyRate ?? null;
-
-    const incremental = headline?.bookings_incremental;
-    const revenueImpact =
-      incremental != null ? Math.round(Number(incremental) * TICKET_EUR) : null;
-
-    return {
-      contacted,
-      overallBookings: overall,
-      bookingSeries,
-      seriesLabels,
-      bookingDeltaPct,
-      bookingRate,
-      bookingRateDeltaPp: null,
-      replyRate,
-      replyRateDeltaPp: null,
-      incremental,
-      revenueImpact,
-      funnel: {
-        sent: total.sent ?? summary.contacted ?? 0,
-        delivered: total.delivered ?? summary.delivered ?? 0,
-        replied: total.replied ?? summary.replied ?? 0,
-        booked: overall,
-      },
-      campaignSplit: {
-        due: dueSeries,
-        passed: passedSeries,
-        dueTotal: attributedDue,
-        passedTotal: attributedPassed,
-      },
-    };
-  }, [
-    analyticsQ.data,
-    total,
-    headline,
-    attributedDue,
-    attributedPassed,
-  ]);
-
-  const snapshotLoading = analyticsQ.isLoading || measurementQ.isLoading || statsQ.isLoading;
 
   return (
     <>
@@ -473,8 +386,6 @@ export default function TodayPage() {
             Controls →
           </Link>
         </div>
-
-        <ProgrammeSnapshot loading={snapshotLoading} {...snapshot} />
 
         <div
           style={{
@@ -951,8 +862,6 @@ export default function TodayPage() {
           </div>
         </div>
 
-        <ProgrammeSnapshot loading={snapshotLoading} {...snapshot} />
-
         <div className="rs-panel" style={{ overflow: 'hidden', marginBottom: 16 }}>
           <div
             style={{
@@ -1081,7 +990,7 @@ export default function TodayPage() {
           </div>
         </div>
 
-        <div className="rs-panel" style={{ padding: 16, marginBottom: 16 }}>
+        <div className="rs-panel" style={{ padding: 16 }}>
           <div
             style={{
               fontSize: 11,
