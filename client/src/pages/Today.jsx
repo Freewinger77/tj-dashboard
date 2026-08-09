@@ -1,14 +1,6 @@
 import { useMemo } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import {
-  AlertTriangle,
-  ArrowRight,
-  Clock,
-  MessageSquareReply,
-  PauseCircle,
-  Play,
-} from 'lucide-react';
 import {
   expireOverdueReminders,
   fetchAnalytics,
@@ -18,21 +10,12 @@ import {
   fetchStats,
   getAutoSend,
   getStationPause,
+  setAutoSend,
   setStationPause,
 } from '../lib/api.js';
 import { relativeTime } from '../lib/format.js';
-import { useLocale } from '../lib/locale.js';
-import Skeleton from '../components/ui/Skeleton.jsx';
+import { PageHeader } from '../components/layout/Shell.jsx';
 import { ToastContainer, useToast } from '../components/ui/Toast.jsx';
-
-function greetingKey(date = new Date()) {
-  const hour = Number(
-    new Intl.DateTimeFormat('en-GB', { hour: 'numeric', hour12: false, timeZone: 'Europe/Helsinki' }).format(date)
-  );
-  if (hour < 12) return 'goodMorning';
-  if (hour < 17) return 'goodAfternoon';
-  return 'goodEvening';
-}
 
 function fmt(n, digits = 0) {
   if (n == null || Number.isNaN(n)) return '—';
@@ -45,6 +28,19 @@ function fmt(n, digits = 0) {
 function pct(part, whole) {
   if (!whole) return null;
   return Math.round((part / whole) * 100);
+}
+
+function greeting(date = new Date()) {
+  const hour = Number(
+    new Intl.DateTimeFormat('en-GB', {
+      hour: 'numeric',
+      hour12: false,
+      timeZone: 'Europe/Helsinki',
+    }).format(date)
+  );
+  if (hour < 12) return 'Good morning';
+  if (hour < 17) return 'Good afternoon';
+  return 'Good evening';
 }
 
 function helsinkiDateLabel(date = new Date()) {
@@ -70,16 +66,44 @@ function startOfHelsinkiWeek(date = new Date()) {
   return new Date(utc - weekdayIndex * 86400000);
 }
 
+function weekWindowLabel() {
+  const start = startOfHelsinkiWeek();
+  const end = new Date();
+  const fmtD = (d, opts) =>
+    new Intl.DateTimeFormat('en-GB', { ...opts, timeZone: 'UTC' }).format(d);
+  return `${fmtD(start, { weekday: 'short', day: 'numeric' })} – ${fmtD(end, {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+  })} · every number below is on this window`;
+}
+
 export default function TodayPage() {
-  const { t } = useLocale();
+  const navigate = useNavigate();
   const { toasts, addToast, removeToast } = useToast();
   const queryClient = useQueryClient();
 
   const statsQ = useQuery({ queryKey: ['stats'], queryFn: fetchStats, refetchInterval: 60_000 });
-  const analyticsQ = useQuery({ queryKey: ['analytics'], queryFn: fetchAnalytics, refetchInterval: 5 * 60_000 });
-  const measurementQ = useQuery({ queryKey: ['measurement'], queryFn: () => fetchMeasurement(), staleTime: 5 * 60_000 });
-  const autoSendQ = useQuery({ queryKey: ['auto-send'], queryFn: getAutoSend, refetchInterval: 30_000 });
-  const stationsQ = useQuery({ queryKey: ['station-pause'], queryFn: getStationPause, refetchInterval: 30_000 });
+  const analyticsQ = useQuery({
+    queryKey: ['analytics'],
+    queryFn: fetchAnalytics,
+    refetchInterval: 5 * 60_000,
+  });
+  const measurementQ = useQuery({
+    queryKey: ['measurement'],
+    queryFn: () => fetchMeasurement(),
+    staleTime: 5 * 60_000,
+  });
+  const autoSendQ = useQuery({
+    queryKey: ['auto-send'],
+    queryFn: getAutoSend,
+    refetchInterval: 30_000,
+  });
+  const stationsQ = useQuery({
+    queryKey: ['station-pause'],
+    queryFn: getStationPause,
+    refetchInterval: 30_000,
+  });
   const customersQ = useQuery({
     queryKey: ['customers', 'replied'],
     queryFn: () => fetchCustomers({ status: 'replied' }),
@@ -96,13 +120,21 @@ export default function TodayPage() {
     staleTime: 30 * 60_000,
   });
 
+  const masterMutation = useMutation({
+    mutationFn: async (enabled) => {
+      await setAutoSend('due_soon', enabled);
+      await setAutoSend('passed', enabled);
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['auto-send'] }),
+    onError: (err) => addToast(err.response?.data?.error || err.message, 'error'),
+  });
+
   const resumeMutation = useMutation({
     mutationFn: ({ stationId }) => setStationPause(stationId, false),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['station-pause'] });
       addToast('Station resumed', 'success');
     },
-    onError: (err) => addToast(err.response?.data?.error || err.message, 'error'),
   });
 
   const expireMutation = useMutation({
@@ -121,10 +153,9 @@ export default function TodayPage() {
   const passedOn = autoSendQ.data?.auto_send_passed ?? false;
   const outreachOn = dueSoonOn || passedOn;
 
-  const campaignLabel = [
-    dueSoonOn ? 'Due soon' : null,
-    passedOn ? 'Passed' : null,
-  ].filter(Boolean).join(' · ') || 'None';
+  const campaignLabel = [dueSoonOn ? 'Due soon' : null, passedOn ? 'Passed' : null]
+    .filter(Boolean)
+    .join(' · ') || 'None';
 
   const needsReply = useMemo(() => {
     const list = customersQ.data?.customers || [];
@@ -141,6 +172,7 @@ export default function TodayPage() {
   const byType = measurementQ.data?.by_lead_type || {};
   const week = statsQ.data?.week || {};
   const total = statsQ.data?.total || {};
+  const today = statsQ.data?.today || {};
 
   const weekBooked = useMemo(() => {
     const bookings = analyticsQ.data?.bookingsAfterWhatsApp || [];
@@ -152,354 +184,833 @@ export default function TodayPage() {
   }, [analyticsQ.data]);
 
   const deliveredRate = pct(total.delivered, total.sent);
-  const weekDelivered = week.sent && deliveredRate != null
-    ? Math.round((week.sent * deliveredRate) / 100)
-    : null;
+  const weekDelivered =
+    week.sent && deliveredRate != null ? Math.round((week.sent * deliveredRate) / 100) : null;
 
-  const needsItems = [];
+  const weekBars = useMemo(() => {
+    const bookings = analyticsQ.data?.bookingsAfterWhatsApp || [];
+    const map = new Map();
+    for (const b of bookings) {
+      const ts = Date.parse(b.dorisBookingCreatedAt || b.appointmentAt || 0);
+      if (!Number.isFinite(ts)) continue;
+      const key = startOfHelsinkiWeek(new Date(ts)).toISOString().slice(0, 10);
+      map.set(key, (map.get(key) || 0) + 1);
+    }
+    const rows = [...map.entries()].sort((a, b) => a[0].localeCompare(b[0])).slice(-8);
+    const max = Math.max(...rows.map((r) => r[1]), 1);
+    return rows.map((r, i) => ({
+      h: `${Math.max(8, Math.round((r[1] / max) * 100))}%`,
+      c: i === rows.length - 1 ? 'var(--brand-logo-blue)' : 'rgba(79,80,127,.28)',
+    }));
+  }, [analyticsQ.data]);
+
+  const tasks = [];
   if (needsReply.length > 0) {
     const oldest = needsReply[0];
-    needsItems.push({
+    tasks.push({
       key: 'replies',
-      icon: MessageSquareReply,
+      dot: 'var(--secondary-red)',
       title: `${needsReply.length} ${needsReply.length === 1 ? 'reply' : 'replies'} waiting for a person`,
-      detail: oldest?.last_inbound_at
-        ? `Oldest has waited ${relativeTime(oldest.last_inbound_at).replace(' ago', '')}`
+      sub: oldest?.last_inbound_at
+        ? `Oldest has waited ${relativeTime(oldest.last_inbound_at).replace(/^about /, '').replace(' ago', '')}`
         : 'Open Conversations to answer',
-      actionLabel: 'Open',
-      to: '/conversations?status=replied&sort=last_inbound_at',
-      tone: 'amber',
+      when: oldest?.last_inbound_at
+        ? new Intl.DateTimeFormat('en-GB', {
+            hour: '2-digit',
+            minute: '2-digit',
+            timeZone: 'Europe/Helsinki',
+          }).format(new Date(oldest.last_inbound_at))
+        : '',
+      action: 'Open',
+      onAction: () => navigate('/conversations?status=replied&sort=last_inbound_at'),
     });
   }
   for (const station of pausedStations) {
-    needsItems.push({
+    tasks.push({
       key: `pause-${station.station_id}`,
-      icon: PauseCircle,
+      dot: 'var(--secondary-yellow)',
       title: `${station.station_name} is paused`,
-      detail: 'No first contacts or reminders send while a station is off.',
-      actionLabel: 'Resume',
+      sub: 'No first contacts or reminders send while a station is off.',
+      when: '',
+      action: 'Resume',
       onAction: () => resumeMutation.mutate({ stationId: station.station_id }),
-      tone: 'sienna',
     });
   }
   if (overdue > 0) {
-    needsItems.push({
+    tasks.push({
       key: 'overdue',
-      icon: Clock,
+      dot: 'var(--secondary-yellow)',
       title: `${fmt(overdue)} reminders are overdue`,
-      detail: 'Expire them before the scheduler picks them up.',
-      actionLabel: 'Expire',
+      sub: 'Expire them before the scheduler picks them up',
+      when: '',
+      action: 'Expire',
       onAction: () => expireMutation.mutate(),
-      tone: 'amber',
     });
   }
   if (failed.length > 0) {
     const first = failed[0];
-    needsItems.push({
+    tasks.push({
       key: 'failed',
-      icon: AlertTriangle,
+      dot: 'var(--secondary-red)',
       title: `${failed.length} message${failed.length === 1 ? '' : 's'} failed to deliver`,
-      detail: first?.number ? `Latest · ${first.number}` : 'Review failed deliveries',
-      actionLabel: 'Review',
-      to: '/conversations?status=failed',
-      tone: 'sienna',
+      sub: first?.number ? `${first.number} — number not on WhatsApp` : 'Review failed deliveries',
+      when: '',
+      action: 'Review',
+      onAction: () => navigate('/conversations?status=failed'),
     });
   }
 
-  const loading = statsQ.isLoading || autoSendQ.isLoading || stationsQ.isLoading;
-  const updatedAt = analyticsQ.data?.generated_at || measurementQ.data?.generated_at;
+  const spendToday = today.sent ? `$${(today.sent * 0.06).toFixed(2)} · ${today.sent} messages` : '$0.00 · 0 messages';
 
   const leadPool = leadPoolQ.data;
-  const remaining = leadPool?.eligible_remaining ?? leadPool?.remaining ?? null;
-  const byStation = leadPool?.by_station || leadPool?.stations || [];
+  const poolStations = Array.isArray(leadPool?.by_station)
+    ? leadPool.by_station
+    : Array.isArray(leadPool?.stations)
+      ? leadPool.stations
+      : [];
+  const poolTotal =
+    leadPool?.eligible_remaining ?? leadPool?.remaining ?? leadPool?.eligible_total ?? null;
+  const poolMax = Math.max(...poolStations.map((p) => p.remaining ?? p.count ?? p.eligible ?? 0), 1);
+
+  const updatedAt = analyticsQ.data?.generated_at || measurementQ.data?.generated_at;
+  const updatedLabel = updatedAt
+    ? new Intl.DateTimeFormat('en-GB', {
+        hour: '2-digit',
+        minute: '2-digit',
+        timeZone: 'Europe/Helsinki',
+      }).format(new Date(updatedAt))
+    : null;
+
+  const title = `${greeting()}`;
+  const subtitle = `${helsinkiDateLabel()}${updatedLabel ? ` · updated ${updatedLabel}` : ''}`;
+
+  const dueMult = byType.due_soon?.multiplier;
+  const passedMult = byType.passed?.multiplier;
+  const maxMult = Math.max(dueMult || 0, passedMult || 0, 1);
 
   return (
-    <div className="space-y-6 sm:space-y-8">
+    <>
       <ToastContainer toasts={toasts} removeToast={removeToast} />
+      <PageHeader
+        title={title}
+        subtitle={subtitle}
+        actions={
+          <>
+            <Link to="/controls" className="rs-btn" style={{ textDecoration: 'none' }}>
+              Send a batch
+            </Link>
+            <button
+              type="button"
+              className="rs-btn-fill"
+              onClick={() => masterMutation.mutate(!outreachOn)}
+              disabled={masterMutation.isPending}
+            >
+              {outreachOn ? 'Pause all outreach' : 'Resume outreach'}
+            </button>
+          </>
+        }
+      />
 
-      <header className="flex flex-wrap items-end justify-between gap-3 animate-fade-up">
-        <div>
-          <h1 className="font-display text-[28px] font-semibold leading-none tracking-tight sm:text-[32px]">
-            {t(greetingKey())}
-          </h1>
-          <p className="mt-2 text-[13px] text-[color:var(--color-ink-3)]">
-            {helsinkiDateLabel()}
-            {updatedAt && (
-              <span className="text-[color:var(--color-ink-4)]">
-                {' '}
-                · updated{' '}
-                {new Intl.DateTimeFormat('en-GB', {
-                  hour: '2-digit',
-                  minute: '2-digit',
-                  timeZone: 'Europe/Helsinki',
-                }).format(new Date(updatedAt))}
-              </span>
-            )}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Link to="/controls" className="btn-primary">
-            {t('sendBatch')}
-          </Link>
-          <Link to="/controls" className="btn-ghost">
-            {t('pauseAll')}
-          </Link>
-        </div>
-      </header>
-
-      <section className="panel animate-fade-up-delay-1 overflow-hidden">
-        {loading ? (
-          <div className="p-5">
-            <Skeleton className="h-16 w-full" />
-          </div>
-        ) : (
-          <div className="grid gap-0 sm:grid-cols-[1.2fr_1fr]">
-            <div className="border-b rule p-5 sm:border-b-0 sm:border-r">
-              <div className="flex items-center gap-2">
-                <span
-                  className={[
-                    'size-2 rounded-full',
-                    outreachOn ? 'bg-[color:var(--color-moss)]' : 'bg-[color:var(--color-ink-5)]',
-                  ].join(' ')}
-                />
-                <h2 className="text-[15px] font-semibold">
-                  {outreachOn ? t('outreachRunning') : t('outreachPaused')}
-                </h2>
-              </div>
-              <dl className="mt-4 grid grid-cols-2 gap-3 text-[13px] sm:grid-cols-3">
-                <div>
-                  <dt className="text-[11px] text-[color:var(--color-ink-4)]">Campaigns</dt>
-                  <dd className="mt-0.5 font-medium">{campaignLabel}</dd>
-                </div>
-                <div>
-                  <dt className="text-[11px] text-[color:var(--color-ink-4)]">Stations</dt>
-                  <dd className="mt-0.5 font-medium">
-                    {stations.length ? `${sendingCount} of ${stations.length} sending` : '—'}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-[11px] text-[color:var(--color-ink-4)]">Next batch</dt>
-                  <dd className="mt-0.5 font-medium">
-                    {outreachOn ? '08:00–18:00 · every 2h' : 'Scheduler off'}
-                  </dd>
-                </div>
-              </dl>
-            </div>
-            <div className="flex items-center justify-between gap-3 p-5">
-              <div>
-                <div className="text-[11px] text-[color:var(--color-ink-4)]">This week so far</div>
-                <div className="mt-1 font-display text-[28px] font-semibold tabular-nums leading-none">
-                  {fmt(week.sent)}
-                </div>
-                <div className="mt-1 text-[12px] text-[color:var(--color-ink-3)]">
-                  sent · {fmt(week.replied)} replied
-                </div>
-              </div>
-              <Link
-                to="/controls"
-                className="inline-flex items-center gap-1 text-[13px] font-medium text-[color:var(--brand-logo-indigo)] hover:underline"
-              >
-                Controls <ArrowRight size={14} />
-              </Link>
+      {/* Desktop Today body — exact mockup 2-col */}
+      <div
+        className="hidden lg:block"
+        style={{ overflowY: 'auto', padding: '24px 28px 40px', flex: 1 }}
+      >
+        <div
+          className="rs-panel"
+          style={{
+            padding: '16px 20px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 24,
+            flexWrap: 'wrap',
+            marginBottom: 24,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 9, flex: 'none' }}>
+            <div
+              style={{
+                width: 8,
+                height: 8,
+                borderRadius: 'var(--radius-pill)',
+                background: outreachOn ? 'var(--secondary-green)' : 'rgba(0,0,0,.2)',
+              }}
+            />
+            <div style={{ fontSize: 14, fontWeight: 600 }}>
+              {outreachOn ? 'Outreach is running' : 'Outreach is paused'}
             </div>
           </div>
-        )}
-      </section>
-
-      <section className="animate-fade-up-delay-2 space-y-3">
-        <div className="flex items-baseline justify-between gap-3">
-          <h2 className="text-[15px] font-semibold">{t('needsYou')}</h2>
-          <span className="text-[12px] text-[color:var(--color-ink-4)]">
-            {needsItems.length} item{needsItems.length === 1 ? '' : 's'}
-          </span>
-        </div>
-        {needsItems.length === 0 ? (
-          <div className="panel px-5 py-6 text-[13px] text-[color:var(--color-ink-3)]">
-            Nothing waiting — outreach queue is clear.
-          </div>
-        ) : (
-          <ul className="divide-y divide-[color:var(--color-rule)] overflow-hidden rounded-xl border rule">
-            {needsItems.map((item) => {
-              const Icon = item.icon;
-              const action = item.to ? (
-                <Link to={item.to} className="btn-ghost !py-1.5 !text-[12px]">
-                  {item.actionLabel}
-                </Link>
-              ) : (
-                <button
-                  type="button"
-                  onClick={item.onAction}
-                  className="btn-ghost !py-1.5 !text-[12px]"
-                >
-                  {item.actionLabel === 'Resume' ? <Play size={12} /> : null}
-                  {item.actionLabel}
-                </button>
-              );
-              return (
-                <li key={item.key} className="flex items-start gap-3 bg-[color:var(--color-canvas)] px-4 py-3.5 sm:px-5">
-                  <div
-                    className={[
-                      'mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg',
-                      item.tone === 'sienna'
-                        ? 'bg-[color:var(--color-sienna-soft)] text-[color:var(--color-sienna)]'
-                        : 'bg-[color:var(--color-amber-soft)] text-[color:var(--color-amber)]',
-                    ].join(' ')}
-                  >
-                    <Icon size={15} strokeWidth={1.75} />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="text-[13px] font-medium">{item.title}</div>
-                    <div className="mt-0.5 text-[12px] text-[color:var(--color-ink-3)]">{item.detail}</div>
-                  </div>
-                  {action}
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </section>
-
-      <section className="space-y-3">
-        <div className="flex items-baseline justify-between gap-3">
-          <div>
-            <h2 className="text-[15px] font-semibold">{t('thisWeek')}</h2>
-            <p className="mt-0.5 text-[12px] text-[color:var(--color-ink-4)]">
-              Every number below is on this calendar week
-            </p>
+          <div style={{ width: 1, height: 28, background: 'var(--border-subtle)' }} />
+          <div style={{ display: 'flex', gap: 28, flex: 1, flexWrap: 'wrap' }}>
+            <Meta label="Campaigns" value={campaignLabel} />
+            <Meta
+              label="Stations"
+              value={stations.length ? `${sendingCount} of ${stations.length} sending` : '—'}
+            />
+            <Meta
+              label="Next batch"
+              value={outreachOn ? '08:00–18:00 · every 2h' : 'Scheduler off'}
+            />
+            <Meta label="Spend today" value={spendToday} />
           </div>
           <Link
-            to="/performance"
-            className="inline-flex items-center gap-1 text-[13px] font-medium text-[color:var(--brand-logo-indigo)] hover:underline"
+            to="/controls"
+            style={{
+              fontSize: 13,
+              fontWeight: 500,
+              color: 'var(--brand-logo-indigo)',
+              cursor: 'pointer',
+              flex: 'none',
+              textDecoration: 'none',
+            }}
           >
-            Performance <ArrowRight size={14} />
+            Controls →
           </Link>
         </div>
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <MetricCard label="Sent" value={fmt(week.sent)} />
-          <MetricCard
-            label="Delivered"
-            value={fmt(weekDelivered)}
-            hint={deliveredRate != null ? `${deliveredRate}% of sent (all-time rate)` : undefined}
-          />
-          <MetricCard
-            label="Replied"
-            value={fmt(week.replied)}
-            hint={week.sent ? `${pct(week.replied, week.sent)}% of sent` : undefined}
-          />
-          <MetricCard
-            label="Booked"
-            value={fmt(weekBooked)}
-            hint={week.sent ? `${pct(weekBooked, week.sent)}% of sent` : undefined}
-          />
-        </div>
-      </section>
 
-      <section className="panel p-5">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="text-[15px] font-semibold">{t('valueOfProgramme')}</h2>
-            <p className="mt-1 text-[12px] text-[color:var(--color-ink-4)]">
-              All time · {fmt(headline?.leads_contacted)} customers contacted
-            </p>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'minmax(0,1fr) 400px',
+            gap: 20,
+            alignItems: 'start',
+          }}
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 20, minWidth: 0 }}>
+            <div className="rs-panel" style={{ overflow: 'hidden' }}>
+              <div
+                style={{
+                  padding: '16px 20px 14px',
+                  display: 'flex',
+                  alignItems: 'baseline',
+                  justifyContent: 'space-between',
+                }}
+              >
+                <div style={{ fontSize: 14, fontWeight: 600 }}>Needs you</div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                  {tasks.length} item{tasks.length === 1 ? '' : 's'}
+                </div>
+              </div>
+              <div style={{ borderTop: '1px solid var(--border-subtle)' }}>
+                {tasks.length === 0 ? (
+                  <div style={{ padding: '18px 20px', fontSize: 13, color: 'var(--text-muted)' }}>
+                    Nothing waiting — outreach queue is clear.
+                  </div>
+                ) : (
+                  tasks.map((t) => (
+                    <div
+                      key={t.key}
+                      className="rs-hover"
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: '8px minmax(0,1fr) auto auto',
+                        gap: 14,
+                        alignItems: 'center',
+                        padding: '14px 20px',
+                        borderBottom: '1px solid var(--border-subtle)',
+                        transition: 'background 120ms',
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: 8,
+                          height: 8,
+                          borderRadius: 'var(--radius-pill)',
+                          background: t.dot,
+                        }}
+                      />
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 14, fontWeight: 500 }}>{t.title}</div>
+                        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+                          {t.sub}
+                        </div>
+                      </div>
+                      <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{t.when}</div>
+                      <button type="button" className="rs-btn" style={{ padding: '6px 12px', fontSize: 12 }} onClick={t.onAction}>
+                        {t.action}
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            <div className="rs-panel" style={{ overflow: 'hidden' }}>
+              <div
+                style={{
+                  padding: '16px 20px 14px',
+                  display: 'flex',
+                  alignItems: 'baseline',
+                  justifyContent: 'space-between',
+                  borderBottom: '1px solid var(--border-subtle)',
+                }}
+              >
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 600 }}>This week</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+                    {weekWindowLabel()}
+                  </div>
+                </div>
+                <Link
+                  to="/performance"
+                  style={{
+                    fontSize: 13,
+                    fontWeight: 500,
+                    color: 'var(--brand-logo-indigo)',
+                    textDecoration: 'none',
+                  }}
+                >
+                  Performance →
+                </Link>
+              </div>
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(4,1fr)',
+                  alignItems: 'end',
+                  padding: 20,
+                }}
+              >
+                <WeekKpi label="Sent" value={fmt(week.sent)} first />
+                <WeekKpi
+                  label="Delivered"
+                  value={fmt(weekDelivered)}
+                  hint={deliveredRate != null ? `${deliveredRate}% of sent` : undefined}
+                />
+                <WeekKpi
+                  label="Replied"
+                  value={fmt(week.replied)}
+                  hint={
+                    weekDelivered
+                      ? `${pct(week.replied, weekDelivered)}% of delivered`
+                      : week.sent
+                        ? `${pct(week.replied, week.sent)}% of sent`
+                        : undefined
+                  }
+                />
+                <WeekKpi
+                  label="Booked"
+                  value={fmt(weekBooked)}
+                  hint={week.sent ? `${pct(weekBooked, week.sent)}% of sent` : undefined}
+                  green
+                />
+              </div>
+              <div style={{ padding: '0 20px 20px' }}>
+                <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: 64 }}>
+                  {(weekBars.length ? weekBars : Array.from({ length: 8 }, () => ({ h: '12%', c: 'rgba(79,80,127,.18)' }))).map(
+                    (b, i) => (
+                      <div
+                        key={i}
+                        style={{
+                          flex: 1,
+                          display: 'flex',
+                          flexDirection: 'column',
+                          justifyContent: 'flex-end',
+                          height: '100%',
+                        }}
+                      >
+                        <div
+                          style={{
+                            borderRadius: '3px 3px 0 0',
+                            height: b.h,
+                            background: b.c,
+                          }}
+                        />
+                      </div>
+                    )
+                  )}
+                </div>
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    marginTop: 8,
+                    fontSize: 10,
+                    color: 'var(--text-muted)',
+                  }}
+                >
+                  <span>8 weeks ago</span>
+                  <span>bookings per week · this week highlighted</span>
+                  <span>now</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+            <div className="rs-panel" style={{ padding: 20 }}>
+              <div style={{ fontSize: 14, fontWeight: 600 }}>Value of the programme</div>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 3 }}>
+                All time · {fmt(headline?.leads_contacted)} customers contacted
+              </div>
+              <div
+                style={{
+                  marginTop: 18,
+                  background: 'var(--surface-sunken)',
+                  borderRadius: 'var(--radius-md)',
+                  padding: 18,
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: 10,
+                    letterSpacing: '.14em',
+                    textTransform: 'uppercase',
+                    color: 'var(--text-muted)',
+                  }}
+                >
+                  Incremental bookings
+                </div>
+                <div
+                  style={{
+                    fontSize: 52,
+                    fontWeight: 600,
+                    letterSpacing: '-.025em',
+                    lineHeight: 1,
+                    marginTop: 10,
+                    fontVariantNumeric: 'tabular-nums',
+                  }}
+                >
+                  {fmt(headline?.bookings_incremental, 0)}
+                </div>
+                <div
+                  style={{
+                    fontSize: 12,
+                    color: 'rgba(0,0,0,.55)',
+                    marginTop: 10,
+                    lineHeight: 1.45,
+                  }}
+                >
+                  Bookings above what the control arm would have produced on its own.{' '}
+                  <b style={{ color: '#000' }}>
+                    {headline?.multiplier != null
+                      ? `${Number(headline.multiplier).toFixed(2)}×`
+                      : '—'}
+                  </b>{' '}
+                  the control rate.
+                </div>
+              </div>
+              <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ fontSize: 13, color: 'rgba(0,0,0,.55)' }}>Due soon</div>
+                  <div style={{ fontSize: 13, fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>
+                    {dueMult != null ? `${Number(dueMult).toFixed(2)}×` : '—'}
+                  </div>
+                </div>
+                <div
+                  style={{
+                    height: 6,
+                    borderRadius: 'var(--radius-pill)',
+                    background: 'rgba(0,0,0,.06)',
+                    overflow: 'hidden',
+                  }}
+                >
+                  <div
+                    style={{
+                      width: `${dueMult != null ? Math.min(100, (dueMult / maxMult) * 100) : 0}%`,
+                      height: '100%',
+                      background: 'var(--brand-logo-indigo)',
+                    }}
+                  />
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ fontSize: 13, color: 'rgba(0,0,0,.55)' }}>Passed</div>
+                  <div style={{ fontSize: 13, fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>
+                    {passedMult != null ? `${Number(passedMult).toFixed(2)}×` : '—'}
+                  </div>
+                </div>
+                <div
+                  style={{
+                    height: 6,
+                    borderRadius: 'var(--radius-pill)',
+                    background: 'rgba(0,0,0,.06)',
+                    overflow: 'hidden',
+                  }}
+                >
+                  <div
+                    style={{
+                      width: `${passedMult != null ? Math.min(100, (passedMult / maxMult) * 100) : 0}%`,
+                      height: '100%',
+                      background: 'rgba(79,80,127,.5)',
+                    }}
+                  />
+                </div>
+              </div>
+              {!measurementQ.data?.freshness?.holdout_table_ready && (
+                <div
+                  style={{
+                    marginTop: 16,
+                    paddingTop: 14,
+                    borderTop: '1px solid var(--border-subtle)',
+                    fontSize: 11,
+                    color: 'var(--text-muted)',
+                    lineHeight: 1.5,
+                  }}
+                >
+                  Control arm is observational until the holdout table is installed.
+                </div>
+              )}
+            </div>
+
+            <div className="rs-panel" style={{ padding: 20 }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+                <div style={{ fontSize: 14, fontWeight: 600 }}>Leads left to contact</div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>due soon</div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginTop: 12 }}>
+                <div
+                  style={{
+                    fontSize: 34,
+                    fontWeight: 600,
+                    letterSpacing: '-.02em',
+                    fontVariantNumeric: 'tabular-nums',
+                  }}
+                >
+                  {fmt(poolTotal)}
+                </div>
+              </div>
+              <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 9 }}>
+                {poolStations.slice(0, 6).map((p) => {
+                  const name = p.station_name || p.name || `Station ${p.station_id}`;
+                  const n = p.remaining ?? p.count ?? p.eligible ?? 0;
+                  const paused = stations.find((s) => String(s.station_id) === String(p.station_id))
+                    ?.paused;
+                  return (
+                    <div
+                      key={name}
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: '74px minmax(0,1fr) 40px',
+                        gap: 10,
+                        alignItems: 'center',
+                      }}
+                    >
+                      <span style={{ fontSize: 12, color: 'rgba(0,0,0,.55)' }}>{name}</span>
+                      <div
+                        style={{
+                          height: 8,
+                          borderRadius: 'var(--radius-pill)',
+                          background: 'rgba(0,0,0,.06)',
+                        }}
+                      >
+                        <div
+                          style={{
+                            height: '100%',
+                            borderRadius: 'var(--radius-pill)',
+                            width: `${Math.round((n / poolMax) * 100)}%`,
+                            background: paused ? 'rgba(0,0,0,.18)' : 'var(--brand-logo-indigo)',
+                          }}
+                        />
+                      </div>
+                      <span
+                        style={{
+                          fontSize: 12,
+                          textAlign: 'right',
+                          fontVariantNumeric: 'tabular-nums',
+                          color: paused ? 'var(--text-muted)' : '#000',
+                        }}
+                      >
+                        {fmt(n)}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+              {pausedStations[0] && (
+                <div
+                  style={{
+                    marginTop: 14,
+                    paddingTop: 12,
+                    borderTop: '1px solid var(--border-subtle)',
+                    fontSize: 11,
+                    color: 'var(--text-muted)',
+                  }}
+                >
+                  {pausedStations[0].station_name} greyed out — station paused.
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Mobile Today — exact mockup */}
+      <div
+        className="block lg:hidden"
+        style={{ flex: 1, overflowY: 'auto', padding: '16px 20px 28px' }}
+      >
+        <div
+          onClick={() => masterMutation.mutate(!outreachOn)}
+          className="rs-panel"
+          style={{
+            padding: '14px 16px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 12,
+            marginBottom: 16,
+            cursor: 'pointer',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+            <div
+              style={{
+                width: 8,
+                height: 8,
+                borderRadius: 'var(--radius-pill)',
+                background: outreachOn ? 'var(--secondary-green)' : 'rgba(0,0,0,.2)',
+                flex: 'none',
+              }}
+            />
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 14, fontWeight: 600 }}>
+                {outreachOn ? 'Outreach running' : 'Outreach paused'}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>
+                {outreachOn
+                  ? `Next batch · ${sendingCount} of ${stations.length || 0} stations`
+                  : 'Scheduler off'}
+              </div>
+            </div>
+          </div>
+          <div
+            style={{
+              width: 44,
+              height: 26,
+              borderRadius: 'var(--radius-pill)',
+              padding: 3,
+              display: 'flex',
+              alignItems: 'center',
+              flex: 'none',
+              background: outreachOn ? 'var(--secondary-green)' : 'rgba(0,0,0,.14)',
+              justifyContent: outreachOn ? 'flex-end' : 'flex-start',
+              transition: 'background 150ms',
+            }}
+          >
+            <div
+              style={{
+                width: 20,
+                height: 20,
+                borderRadius: 'var(--radius-pill)',
+                background: '#fff',
+                boxShadow: '0 1px 3px rgba(0,0,0,.25)',
+                flex: 'none',
+              }}
+            />
+          </div>
+        </div>
+
+        <div className="rs-panel" style={{ overflow: 'hidden', marginBottom: 16 }}>
+          <div
+            style={{
+              padding: '13px 16px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              borderBottom: '1px solid var(--border-subtle)',
+            }}
+          >
+            <div style={{ fontSize: 14, fontWeight: 600 }}>Needs you</div>
+            <div
+              style={{
+                minWidth: 20,
+                height: 20,
+                padding: '0 7px',
+                borderRadius: 'var(--radius-pill)',
+                background: 'var(--secondary-red)',
+                color: '#fff',
+                font: '600 11px/20px Inter,sans-serif',
+                textAlign: 'center',
+              }}
+            >
+              {tasks.length}
+            </div>
+          </div>
+          {tasks.slice(0, 4).map((t) => (
+            <div
+              key={t.key}
+              onClick={t.onAction}
+              style={{
+                padding: '13px 16px',
+                borderBottom: '1px solid var(--border-subtle)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+                cursor: 'pointer',
+              }}
+            >
+              <div
+                style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: 'var(--radius-pill)',
+                  flex: 'none',
+                  background: t.dot,
+                }}
+              />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 14, fontWeight: 500 }}>{t.title}</div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>{t.sub}</div>
+              </div>
+              <div
+                style={{
+                  flex: 'none',
+                  padding: '5px 11px',
+                  border: '1px solid var(--border-default)',
+                  borderRadius: 'var(--radius-pill)',
+                  fontSize: 12,
+                  fontWeight: 500,
+                }}
+              >
+                {t.action}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="rs-panel" style={{ padding: 16, marginBottom: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+            <div style={{ fontSize: 14, fontWeight: 600 }}>This week</div>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+              {new Intl.DateTimeFormat('en-GB', {
+                weekday: 'short',
+                day: 'numeric',
+                timeZone: 'UTC',
+              }).format(startOfHelsinkiWeek())}{' '}
+              –{' '}
+              {new Intl.DateTimeFormat('en-GB', {
+                weekday: 'short',
+                day: 'numeric',
+                timeZone: 'Europe/Helsinki',
+              }).format(new Date())}
+            </div>
+          </div>
+          <div style={{ marginTop: 14, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+            <div>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Sent</div>
+              <div
+                style={{
+                  fontSize: 28,
+                  fontWeight: 600,
+                  marginTop: 3,
+                  letterSpacing: '-.02em',
+                  fontVariantNumeric: 'tabular-nums',
+                }}
+              >
+                {fmt(week.sent)}
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Booked</div>
+              <div
+                style={{
+                  fontSize: 28,
+                  fontWeight: 600,
+                  marginTop: 3,
+                  letterSpacing: '-.02em',
+                  color: 'rgb(40,150,70)',
+                  fontVariantNumeric: 'tabular-nums',
+                }}
+              >
+                {fmt(weekBooked)}
+              </div>
+            </div>
+          </div>
+          <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-muted)' }}>
+            {week.sent ? `${pct(weekBooked, week.sent)}% of sent booked` : '—'} ·{' '}
+            {week.sent ? `${pct(week.replied, week.sent)}% replied` : '—'}
+          </div>
+        </div>
+
+        <div className="rs-panel" style={{ padding: 16 }}>
+          <div
+            style={{
+              fontSize: 11,
+              letterSpacing: '.14em',
+              textTransform: 'uppercase',
+              color: 'var(--text-muted)',
+            }}
+          >
+            Incremental bookings
+          </div>
+          <div
+            style={{
+              fontSize: 44,
+              fontWeight: 600,
+              letterSpacing: '-.03em',
+              marginTop: 8,
+              lineHeight: 1,
+              fontVariantNumeric: 'tabular-nums',
+            }}
+          >
+            {fmt(headline?.bookings_incremental, 0)}
+          </div>
+          <div style={{ fontSize: 12, color: 'rgba(0,0,0,.55)', marginTop: 8, lineHeight: 1.45 }}>
+            {headline?.multiplier != null ? `${Number(headline.multiplier).toFixed(2)}×` : '—'} the
+            control rate, all time, from {fmt(headline?.leads_contacted)} contacted.
           </div>
           <Link
             to="/performance?method=incremental"
-            className="inline-flex items-center gap-1 text-[13px] font-medium text-[color:var(--brand-logo-indigo)] hover:underline"
+            style={{
+              marginTop: 14,
+              display: 'inline-block',
+              fontSize: 13,
+              fontWeight: 500,
+              color: 'var(--brand-logo-indigo)',
+              textDecoration: 'none',
+            }}
           >
-            Details <ArrowRight size={14} />
+            See the breakdown →
           </Link>
         </div>
-        <div className="mt-5 grid gap-5 sm:grid-cols-[1fr_auto]">
-          <div>
-            <div className="text-[11px] text-[color:var(--color-ink-4)]">Incremental bookings</div>
-            <div className="mt-1 font-display text-[36px] font-semibold leading-none tabular-nums tracking-tight">
-              {fmt(headline?.bookings_incremental, 0)}
-            </div>
-            <p className="mt-2 max-w-md text-[12px] text-[color:var(--color-ink-3)]">
-              Bookings above what the control arm would have produced on its own.
-            </p>
-          </div>
-          <div className="sm:text-right">
-            <div className="font-display text-[28px] font-semibold tabular-nums">
-              {headline?.multiplier != null ? `${Number(headline.multiplier).toFixed(2)}×` : '—'}
-            </div>
-            <div className="text-[12px] text-[color:var(--color-ink-3)]">the control rate</div>
-            <div className="mt-3 flex flex-wrap gap-3 text-[12px] sm:justify-end">
-              <span>
-                Due soon{' '}
-                <strong className="font-semibold">
-                  {byType.due_soon?.multiplier != null
-                    ? `${Number(byType.due_soon.multiplier).toFixed(2)}×`
-                    : '—'}
-                </strong>
-              </span>
-              <span>
-                Passed{' '}
-                <strong className="font-semibold">
-                  {byType.passed?.multiplier != null
-                    ? `${Number(byType.passed.multiplier).toFixed(2)}×`
-                    : '—'}
-                </strong>
-              </span>
-            </div>
-          </div>
-        </div>
-        {!measurementQ.data?.freshness?.holdout_table_ready && (
-          <p className="mt-4 text-[11px] text-[color:var(--color-ink-4)]">
-            Control arm is observational until the holdout table is installed.
-          </p>
-        )}
-      </section>
+      </div>
+    </>
+  );
+}
 
-      {(remaining != null || byStation.length > 0) && (
-        <section className="space-y-3">
-          <div>
-            <h2 className="text-[15px] font-semibold">Leads left to contact</h2>
-            <p className="mt-0.5 text-[12px] text-[color:var(--color-ink-4)]">due soon · eligible pool</p>
-          </div>
-          <div className="panel p-5">
-            <div className="font-display text-[28px] font-semibold tabular-nums">
-              {fmt(remaining ?? leadPool?.eligible_total)}
-            </div>
-            {Array.isArray(byStation) && byStation.length > 0 && (
-              <ul className="mt-4 grid gap-2 sm:grid-cols-2">
-                {byStation.slice(0, 6).map((row) => {
-                  const name = row.station_name || row.name || `Station ${row.station_id}`;
-                  const count = row.remaining ?? row.count ?? row.eligible ?? 0;
-                  const paused = stations.find((s) => String(s.station_id) === String(row.station_id))?.paused;
-                  return (
-                    <li
-                      key={name}
-                      className={[
-                        'flex items-center justify-between text-[13px]',
-                        paused ? 'text-[color:var(--color-ink-4)]' : '',
-                      ].join(' ')}
-                    >
-                      <span>
-                        {name}
-                        {paused ? ' · paused' : ''}
-                      </span>
-                      <span className="tabular-nums font-medium">{fmt(count)}</span>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </div>
-        </section>
-      )}
+function Meta({ label, value }) {
+  return (
+    <div>
+      <div
+        style={{
+          fontSize: 10,
+          letterSpacing: '.12em',
+          textTransform: 'uppercase',
+          color: 'var(--text-muted)',
+        }}
+      >
+        {label}
+      </div>
+      <div style={{ fontSize: 13, marginTop: 3 }}>{value}</div>
     </div>
   );
 }
 
-function MetricCard({ label, value, hint }) {
+function WeekKpi({ label, value, hint, first, green }) {
   return (
-    <div className="panel px-4 py-4">
-      <div className="text-[11px] text-[color:var(--color-ink-4)]">{label}</div>
-      <div className="mt-1 font-display text-[26px] font-semibold leading-none tabular-nums tracking-tight">
+    <div
+      style={{
+        paddingLeft: first ? 0 : 20,
+        paddingRight: 20,
+        borderLeft: first ? undefined : '1px solid var(--border-subtle)',
+      }}
+    >
+      <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{label}</div>
+      <div
+        style={{
+          fontSize: 34,
+          fontWeight: 600,
+          letterSpacing: '-.02em',
+          marginTop: 6,
+          fontVariantNumeric: 'tabular-nums',
+          color: green ? 'rgb(40,150,70)' : '#000',
+        }}
+      >
         {value}
       </div>
-      {hint && <div className="mt-1.5 text-[11px] text-[color:var(--color-ink-3)]">{hint}</div>}
+      {hint && (
+        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>{hint}</div>
+      )}
     </div>
   );
 }

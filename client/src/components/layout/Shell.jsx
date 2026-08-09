@@ -1,77 +1,132 @@
 import { NavLink, useLocation } from 'react-router-dom';
 import {
-  CalendarPlus,
-  LayoutDashboard,
-  MessageSquare,
+  BookOpen,
+  ChartLine,
+  LayoutGrid,
+  MessageCircle,
   Moon,
-  Settings2,
+  Settings,
   Sun,
-  TrendingUp,
 } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { fetchCustomers } from '../../lib/api.js';
 import { useTheme } from '../../lib/useTheme.js';
 import { useLocale } from '../../lib/locale.js';
 
-const NAV = [
-  { to: '/', end: true, icon: LayoutDashboard, labelKey: 'today' },
-  { to: '/conversations', icon: MessageSquare, labelKey: 'conversations' },
-  { to: '/performance', icon: TrendingUp, labelKey: 'performance' },
-  { to: '/controls', icon: Settings2, labelKey: 'controls' },
-  { to: '/capture', icon: CalendarPlus, labelKey: 'capture' },
+const DESKTOP_NAV = [
+  { to: '/', end: true, label: 'Today', icon: LayoutGrid, fillWhenActive: true },
+  { to: '/conversations', label: 'Conversations', icon: MessageCircle, badge: true },
+  { to: '/performance', label: 'Performance', icon: ChartLine },
+  { to: '/controls', label: 'Controls', icon: Settings },
+  { to: '/capture', label: 'Capture', icon: BookOpen, desktopOnly: true },
 ];
 
-function BrandMark() {
-  return (
-    <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-[color:var(--color-brand-mark)] text-[11px] font-bold tracking-tight text-white dark:text-black">
-      TJ
-    </div>
-  );
-}
+const MOBILE_NAV = [
+  { to: '/', end: true, label: 'Today', icon: LayoutGrid },
+  { to: '/conversations', label: 'Chats', icon: MessageCircle, badge: true },
+  { to: '/performance', label: 'Stats', icon: ChartLine },
+  { to: '/controls', label: 'Controls', icon: Settings },
+];
 
-function DesktopNavItem({ to, icon: Icon, children, end }) {
+function DesktopNavItem({ to, end, icon: Icon, children, badge, fillWhenActive }) {
   return (
-    <NavLink
-      to={to}
-      end={end}
-      className={({ isActive }) =>
-        [
-          'group flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] font-medium transition-colors',
-          isActive
-            ? 'bg-[color:var(--surface-hover)] text-[color:var(--color-ink)]'
-            : 'text-[color:var(--color-sidebar)] hover:bg-[color:var(--surface-hover)] hover:text-[color:var(--color-ink)]',
-        ].join(' ')
-      }
-    >
+    <NavLink to={to} end={end} style={{ textDecoration: 'none' }}>
       {({ isActive }) => (
-        <>
-          <Icon
-            size={16}
-            strokeWidth={isActive ? 2 : 1.75}
-            className={isActive ? 'text-[color:var(--brand-logo-indigo)]' : 'opacity-70'}
-          />
-          <span>{children}</span>
-        </>
+        <div
+          className="rs-hover"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: badge != null ? 'space-between' : undefined,
+            gap: badge != null ? undefined : 10,
+            padding: '9px 10px',
+            borderRadius: 'var(--radius-md)',
+            cursor: 'pointer',
+            transition: 'background 120ms',
+            background: isActive ? 'rgba(0,0,0,.04)' : 'transparent',
+            color: isActive ? '#000' : 'rgba(0,0,0,.55)',
+            fontWeight: isActive ? 500 : 400,
+            fontSize: 14,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <Icon
+              size={18}
+              strokeWidth={isActive && fillWhenActive ? 2.25 : 1.75}
+              fill={isActive && fillWhenActive ? 'currentColor' : 'none'}
+              style={{ flex: 'none' }}
+            />
+            {children}
+          </div>
+          {badge != null && badge > 0 && (
+            <div
+              style={{
+                minWidth: 20,
+                height: 18,
+                padding: '0 6px',
+                borderRadius: 'var(--radius-pill)',
+                background: 'var(--secondary-red)',
+                color: '#fff',
+                font: '600 10px/18px Inter,sans-serif',
+                textAlign: 'center',
+              }}
+            >
+              {badge > 99 ? '99+' : badge}
+            </div>
+          )}
+        </div>
       )}
     </NavLink>
   );
 }
 
-function MobileNavItem({ to, icon: Icon, children, end }) {
+function MobileNavItem({ to, end, icon: Icon, children, badge }) {
   return (
-    <NavLink
-      to={to}
-      end={end}
-      className={({ isActive }) =>
-        [
-          'flex min-w-0 flex-1 flex-col items-center gap-0.5 px-1 py-2 text-[10px] font-medium transition-colors',
-          isActive ? 'text-[color:var(--brand-logo-indigo)]' : 'text-[color:var(--color-ink-4)]',
-        ].join(' ')
-      }
-    >
+    <NavLink to={to} end={end} style={{ textDecoration: 'none', position: 'relative' }}>
       {({ isActive }) => (
-        <>
-          <Icon size={20} strokeWidth={isActive ? 2 : 1.75} />
-          <span className="truncate">{children}</span>
-        </>
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: 4,
+            padding: '4px 0',
+          }}
+        >
+          <Icon
+            size={22}
+            strokeWidth={isActive ? 2.25 : 1.75}
+            style={{ color: isActive ? '#000' : 'var(--text-muted)' }}
+          />
+          <div
+            style={{
+              fontSize: 10,
+              color: isActive ? '#000' : 'var(--text-muted)',
+              fontWeight: isActive ? 500 : 400,
+            }}
+          >
+            {children}
+          </div>
+          {badge != null && badge > 0 && (
+            <div
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 'calc(50% + 6px)',
+                minWidth: 17,
+                height: 17,
+                padding: '0 4px',
+                borderRadius: 'var(--radius-pill)',
+                background: 'var(--secondary-red)',
+                color: '#fff',
+                font: '600 10px/17px Inter,sans-serif',
+                textAlign: 'center',
+              }}
+            >
+              {badge > 99 ? '99+' : badge}
+            </div>
+          )}
+        </div>
       )}
     </NavLink>
   );
@@ -81,120 +136,215 @@ export default function Shell({ children }) {
   const location = useLocation();
   const onDetail = location.pathname.startsWith('/customers/');
   const { isDark, toggle } = useTheme();
-  const { locale, setLocale, t } = useLocale();
+  const { locale, setLocale } = useLocale();
+
+  const needsQ = useQuery({
+    queryKey: ['customers', 'replied', 'badge'],
+    queryFn: () => fetchCustomers({ status: 'replied' }),
+    refetchInterval: 60_000,
+    staleTime: 30_000,
+  });
+  const needsCount = needsQ.data?.customers?.length || 0;
 
   if (onDetail) {
-    return <div className="relative z-10 min-h-dvh bg-[color:var(--color-canvas)]">{children}</div>;
+    return <div style={{ minHeight: '100dvh', background: '#fff' }}>{children}</div>;
   }
 
   return (
-    <div className="relative z-10 flex min-h-dvh bg-[color:var(--color-canvas)]">
-      <aside className="sticky top-0 hidden h-dvh w-[220px] shrink-0 flex-col border-r rule px-3 py-4 lg:flex">
-        <NavLink to="/" className="mb-6 flex items-center gap-2.5 px-2">
-          <BrandMark />
-          <div className="min-w-0">
-            <div className="truncate text-[14px] font-semibold tracking-tight text-[color:var(--color-sidebar)]">
-              TJ Katsastus
-            </div>
-            <div className="text-[10px] text-[color:var(--color-ink-4)]">WhatsApp</div>
+    <div className="rs-shell">
+      <aside className="rs-sidebar">
+        <NavLink
+          to="/"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            padding: '0 8px',
+            textDecoration: 'none',
+          }}
+        >
+          <div
+            style={{
+              width: 28,
+              height: 28,
+              borderRadius: 'var(--radius-pill)',
+              background: 'var(--surface-inverse)',
+              color: '#fff',
+              display: 'grid',
+              placeItems: 'center',
+              font: '700 9px/1 Inter,sans-serif',
+              flex: 'none',
+            }}
+          >
+            TJ
+          </div>
+          <div style={{ font: '500 13px/1.2 Inter,sans-serif', color: 'rgb(58,58,58)' }}>
+            TJ&nbsp;Katsastus
           </div>
         </NavLink>
 
-        <nav className="flex flex-1 flex-col gap-0.5">
-          {NAV.map((item) => (
-            <DesktopNavItem key={item.to} to={item.to} icon={item.icon} end={item.end}>
-              {t(item.labelKey)}
+        <nav style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          {DESKTOP_NAV.map((item) => (
+            <DesktopNavItem
+              key={item.to}
+              to={item.to}
+              end={item.end}
+              icon={item.icon}
+              badge={item.badge ? needsCount : undefined}
+              fillWhenActive={item.fillWhenActive}
+            >
+              {item.label}
             </DesktopNavItem>
           ))}
         </nav>
 
-        <div className="mt-auto space-y-3 border-t rule pt-3">
-          <div className="px-2">
-            <div className="text-[10px] font-medium uppercase tracking-[0.14em] text-[color:var(--color-ink-4)]">
-              {t('scope')}
-            </div>
-            <div className="mt-1 text-[13px] font-medium text-[color:var(--color-ink)]">
-              {t('allStations')}
-            </div>
+        <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: 10, padding: '0 8px' }}>
+          <div
+            style={{
+              fontSize: 10,
+              letterSpacing: '.14em',
+              textTransform: 'uppercase',
+              color: 'var(--text-muted)',
+            }}
+          >
+            Scope
           </div>
-          <div className="flex items-center justify-between px-2">
-            <div className="flex items-center gap-2">
-              <div className="grid size-7 place-items-center rounded-full bg-[color:var(--color-clay-soft)] text-[11px] font-semibold text-[color:var(--brand-logo-indigo)]">
-                TJ
-              </div>
-              <span className="text-[12px] font-medium text-[color:var(--color-ink-2)]">Ops</span>
-            </div>
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                onClick={() => setLocale('en')}
-                className={[
-                  'rounded px-1.5 py-0.5 text-[11px] font-semibold',
-                  locale === 'en' ? 'text-[color:var(--color-ink)]' : 'text-[color:var(--color-ink-4)]',
-                ].join(' ')}
+          <div
+            className="rs-hover"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '8px 10px',
+              border: '1px solid var(--border-default)',
+              borderRadius: 'var(--radius-sm)',
+              fontSize: 13,
+              cursor: 'default',
+            }}
+          >
+            All stations
+            <span style={{ color: 'var(--text-muted)', fontSize: 10 }}>▾</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 2px' }}>
+            <img
+              src="/avatar-pyry.png"
+              alt=""
+              style={{ width: 24, height: 24, borderRadius: 'var(--radius-pill)', objectFit: 'cover' }}
+            />
+            <div style={{ fontSize: 12, color: 'rgba(0,0,0,.55)', flex: 1 }}>Ops</div>
+            <div
+              onClick={() => setLocale(locale === 'en' ? 'fi' : 'en')}
+              style={{
+                display: 'flex',
+                border: '1px solid var(--border-default)',
+                borderRadius: 6,
+                overflow: 'hidden',
+                cursor: 'pointer',
+              }}
+            >
+              <div
+                style={{
+                  padding: '2px 6px',
+                  fontSize: 10,
+                  fontWeight: 600,
+                  background: locale === 'en' ? 'rgba(0,0,0,.04)' : 'transparent',
+                  color: locale === 'en' ? '#000' : 'rgba(0,0,0,.4)',
+                }}
               >
                 EN
-              </button>
-              <button
-                type="button"
-                onClick={() => setLocale('fi')}
-                className={[
-                  'rounded px-1.5 py-0.5 text-[11px] font-semibold',
-                  locale === 'fi' ? 'text-[color:var(--color-ink)]' : 'text-[color:var(--color-ink-4)]',
-                ].join(' ')}
+              </div>
+              <div
+                style={{
+                  padding: '2px 6px',
+                  fontSize: 10,
+                  fontWeight: 600,
+                  background: locale === 'fi' ? 'rgba(0,0,0,.04)' : 'transparent',
+                  color: locale === 'fi' ? '#000' : 'rgba(0,0,0,.4)',
+                }}
               >
                 FI
-              </button>
-              <button
-                type="button"
-                onClick={toggle}
-                aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
-                className="ml-1 grid size-7 place-items-center rounded-md text-[color:var(--color-ink-3)] transition-colors hover:bg-[color:var(--surface-hover)] hover:text-[color:var(--color-ink)]"
-              >
-                {isDark ? <Sun size={14} strokeWidth={1.75} /> : <Moon size={14} strokeWidth={1.75} />}
-              </button>
+              </div>
             </div>
+            <button
+              type="button"
+              onClick={toggle}
+              aria-label="Toggle theme"
+              style={{
+                border: 0,
+                background: 'transparent',
+                cursor: 'pointer',
+                color: 'rgba(0,0,0,.45)',
+                display: 'grid',
+                placeItems: 'center',
+                padding: 2,
+              }}
+            >
+              {isDark ? <Sun size={14} /> : <Moon size={14} />}
+            </button>
           </div>
         </div>
       </aside>
 
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-20 flex h-12 items-center justify-between border-b rule bg-[color:var(--color-canvas)]/90 px-4 backdrop-blur-sm lg:hidden">
-          <NavLink to="/" className="flex items-center gap-2">
-            <BrandMark />
-            <span className="text-[14px] font-semibold tracking-tight">TJ Katsastus</span>
-          </NavLink>
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              onClick={() => setLocale(locale === 'en' ? 'fi' : 'en')}
-              className="rounded-md px-2 py-1 text-[11px] font-semibold text-[color:var(--color-ink-3)]"
-            >
-              {locale === 'en' ? 'FI' : 'EN'}
-            </button>
-            <button
-              type="button"
-              onClick={toggle}
-              aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
-              className="grid size-8 place-items-center rounded-md text-[color:var(--color-ink-3)]"
-            >
-              {isDark ? <Sun size={15} strokeWidth={1.75} /> : <Moon size={15} strokeWidth={1.75} />}
-            </button>
-          </div>
-        </header>
-
-        <main className="mx-auto w-full max-w-[1100px] flex-1 px-4 py-5 sm:px-6 sm:py-7 pb-24 lg:pb-7">
-          {children}
-        </main>
-
-        <nav className="fixed inset-x-0 bottom-0 z-20 flex border-t rule bg-[color:var(--color-canvas)]/95 backdrop-blur-sm lg:hidden pb-[env(safe-area-inset-bottom)]">
-          {NAV.map((item) => (
-            <MobileNavItem key={item.to} to={item.to} icon={item.icon} end={item.end}>
-              {t(item.labelKey)}
-            </MobileNavItem>
-          ))}
-        </nav>
+      <div className="rs-main">
+        {children}
       </div>
+
+      <nav className="rs-mobile-tabs">
+        {MOBILE_NAV.map((item) => (
+          <MobileNavItem
+            key={item.to}
+            to={item.to}
+            end={item.end}
+            icon={item.icon}
+            badge={item.badge ? needsCount : undefined}
+          >
+            {item.label}
+          </MobileNavItem>
+        ))}
+      </nav>
     </div>
+  );
+}
+
+export function PageHeader({ title, subtitle, actions, mobileScope }) {
+  return (
+    <>
+      <div className="rs-page-header-desktop">
+        <div>
+          <div style={{ fontSize: 20, fontWeight: 600, letterSpacing: '-.01em' }}>{title}</div>
+          {subtitle && (
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>{subtitle}</div>
+          )}
+        </div>
+        {actions && <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>{actions}</div>}
+      </div>
+
+      <div className="rs-page-header-mobile">
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 19, fontWeight: 600, letterSpacing: '-.01em' }}>{title}</div>
+          {subtitle && (
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>{subtitle}</div>
+          )}
+        </div>
+        {mobileScope !== false && (
+          <div
+            style={{
+              flex: 'none',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 5,
+              padding: '6px 10px',
+              border: '1px solid var(--border-default)',
+              borderRadius: 'var(--radius-pill)',
+              fontSize: 12,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            All stations
+            <span style={{ color: 'var(--text-muted)', fontSize: 9 }}>▾</span>
+          </div>
+        )}
+      </div>
+    </>
   );
 }

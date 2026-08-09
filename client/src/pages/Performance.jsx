@@ -1,7 +1,6 @@
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { AlertTriangle, BarChart3 } from 'lucide-react';
 import {
   fetchAnalytics,
   fetchMeasurement,
@@ -9,8 +8,7 @@ import {
   getStationPause,
   pollMessageStatuses,
 } from '../lib/api.js';
-import EmptyState from '../components/ui/EmptyState.jsx';
-import Skeleton from '../components/ui/Skeleton.jsx';
+import { PageHeader } from '../components/layout/Shell.jsx';
 
 const PERIODS = [
   { key: 'week', label: 'Week' },
@@ -64,15 +62,9 @@ function periodWindowLabel(period) {
       timeZone: 'UTC',
     }).format(d);
   const now = new Date();
-  if (period === 'week') {
-    const start = startOfHelsinkiWeek(now);
-    return `${fmtDate(start)} – ${fmtDate(now)} · Europe/Helsinki`;
-  }
-  if (period === 'month') {
-    const start = startOfHelsinkiMonth(now);
-    return `${fmtDate(start)} – ${fmtDate(now)} · Europe/Helsinki`;
-  }
-  return 'All reachable due_soon / passed leads · Europe/Helsinki';
+  if (period === 'week') return `${fmtDate(startOfHelsinkiWeek(now))} – ${fmtDate(now)}`;
+  if (period === 'month') return `${fmtDate(startOfHelsinkiMonth(now))} – ${fmtDate(now)}`;
+  return 'All reachable due_soon / passed leads';
 }
 
 export default function PerformancePage() {
@@ -82,14 +74,9 @@ export default function PerformancePage() {
     : 'week';
   const method = searchParams.get('method') === 'attributed' ? 'attributed' : 'incremental';
 
-  const setPeriod = (key) => {
+  const setParam = (key, val) => {
     const next = new URLSearchParams(searchParams);
-    next.set('period', key);
-    setSearchParams(next, { replace: true });
-  };
-  const setMethod = (key) => {
-    const next = new URLSearchParams(searchParams);
-    next.set('method', key);
+    next.set(key, val);
     setSearchParams(next, { replace: true });
   };
 
@@ -109,27 +96,6 @@ export default function PerformancePage() {
   useEffect(() => {
     pollMessageStatuses().catch(() => {});
   }, []);
-
-  const loading = statsQ.isLoading || analyticsQ.isLoading || measurementQ.isLoading;
-  if (loading) {
-    return (
-      <div className="space-y-4">
-        <Skeleton className="h-10 w-64" />
-        <Skeleton className="h-40 w-full" />
-        <Skeleton className="h-56 w-full" />
-      </div>
-    );
-  }
-
-  if (statsQ.isError || analyticsQ.isError) {
-    return (
-      <EmptyState
-        icon={BarChart3}
-        title="Performance could not load"
-        hint="Check the API logs and refresh the page."
-      />
-    );
-  }
 
   const stats = statsQ.data || {};
   const analytics = analyticsQ.data || {};
@@ -165,411 +131,588 @@ export default function PerformancePage() {
   });
 
   const attributedCount =
-    period === 'all'
-      ? summary.bookingsAfterWhatsApp ?? bookings.length
-      : periodBookings.length;
+    period === 'all' ? summary.bookingsAfterWhatsApp ?? bookings.length : periodBookings.length;
   const silentBookings = periodBookings.filter((b) => !b.customerReplied).length;
   const incremental = measurement?.headline?.bookings_incremental;
-  const bookingsHero = method === 'incremental' ? incremental : attributedCount;
+  const hero = method === 'incremental' ? incremental : attributedCount;
 
-  const chartRows = buildWeeklyRows(bookings);
-  const heatmap = buildSendHeatmap(sendWindows);
-  const byStation = measurement?.by_station || [];
-
-  return (
-    <div className="space-y-6 sm:space-y-8 animate-fade-up">
-      <header className="space-y-4">
-        <div>
-          <h1 className="font-display text-[28px] font-semibold leading-none tracking-tight sm:text-[32px]">
-            Performance
-          </h1>
-          <p className="mt-2 text-[13px] text-[color:var(--color-ink-3)]">
-            Every panel on this page uses the period below.
-          </p>
-        </div>
-
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="segmented">
-            {PERIODS.map((p) => (
-              <button
-                key={p.key}
-                type="button"
-                aria-pressed={period === p.key}
-                onClick={() => setPeriod(p.key)}
-              >
-                {p.label}
-              </button>
-            ))}
-          </div>
-          <div className="text-[12px] text-[color:var(--color-ink-4)]">{periodWindowLabel(period)}</div>
-        </div>
-      </header>
-
-      {measurement?.freshness?.stale && (
-        <div className="flex items-start gap-2 rounded-xl border border-[color:var(--color-amber)]/30 bg-[color:var(--color-amber-soft)] px-4 py-3 text-[13px]">
-          <AlertTriangle size={16} className="mt-0.5 shrink-0" strokeWidth={1.75} />
-          <div>
-            <div className="font-medium">Booking capture is stale</div>
-            <div className="text-[color:var(--color-ink-2)]">
-              Last snapshot was {measurement.freshness.days_since_capture} days ago. Treat value
-              numbers as provisional until a new capture lands.
-            </div>
-          </div>
-        </div>
-      )}
-
-      <section className="panel p-5 sm:p-6">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-[color:var(--color-ink-4)]">
-              Bookings from outreach
-            </div>
-            <div className="mt-2 font-display text-[44px] font-semibold leading-none tabular-nums tracking-tight">
-              {method === 'incremental' ? fmt(bookingsHero, 0) : fmt(bookingsHero)}
-            </div>
-          </div>
-          <div className="segmented">
-            <button
-              type="button"
-              aria-pressed={method === 'incremental'}
-              onClick={() => setMethod('incremental')}
-            >
-              Incremental
-            </button>
-            <button
-              type="button"
-              aria-pressed={method === 'attributed'}
-              onClick={() => setMethod('attributed')}
-            >
-              Attributed
-            </button>
-          </div>
-        </div>
-
-        <p className="mt-4 max-w-2xl text-[13px] text-[color:var(--color-ink-3)]">
-          {method === 'incremental' ? (
-            <>
-              Bookings above the control rate, from {fmt(measurement?.headline?.leads_contacted)}{' '}
-              contacted customers. Attributed count is{' '}
-              <strong className="font-semibold text-[color:var(--color-ink)]">
-                {fmt(summary.bookingsAfterWhatsApp ?? bookings.length)}
-              </strong>{' '}
-              — the difference is bookings the control arm suggests would have happened anyway.
-              {period !== 'all' && (
-                <span className="text-[color:var(--color-ink-4)]">
-                  {' '}
-                  Incremental is all-time; funnel metrics below follow the selected period.
-                </span>
-              )}
-            </>
-          ) : (
-            <>
-              Registration-matched bookings after outreach
-              {period !== 'all' ? ' in this period' : ''}. Incremental lift is{' '}
-              <strong className="font-semibold text-[color:var(--color-ink)]">
-                {fmt(incremental, 0)}
-              </strong>{' '}
-              all-time.
-            </>
-          )}
-        </p>
-
-        {!measurement?.freshness?.holdout_table_ready && (
-          <p className="mt-3 text-[11px] text-[color:var(--color-ink-4)]">
-            Control arm is observational
-          </p>
-        )}
-
-        <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <MiniStat label="Sent" value={fmt(sent)} />
-          <MiniStat
-            label="Delivered"
-            value={fmt(delivered)}
-            hint={
-              delivered != null && sent
-                ? `${pct(delivered, sent)}% of sent`
-                : period !== 'all'
-                  ? 'Estimated from all-time rate'
-                  : undefined
-            }
-          />
-          <MiniStat
-            label="Replied"
-            value={fmt(replied)}
-            hint={sent ? `${pct(replied, sent)}% of sent` : undefined}
-          />
-          <MiniStat
-            label="Booked without replying"
-            value={fmt(silentBookings)}
-            hint={
-              attributedCount
-                ? `${pct(silentBookings, attributedCount)}% of attributed`
-                : undefined
-            }
-          />
-        </div>
-      </section>
-
-      <section className="panel p-5">
-        <div className="mb-4">
-          <h2 className="text-[15px] font-semibold">Bookings per week</h2>
-          <p className="mt-0.5 text-[12px] text-[color:var(--color-ink-4)]">
-            Attributed bookings · this week highlighted when period is Week
-          </p>
-        </div>
-        <WeeklyBars rows={chartRows} highlightCurrent={period === 'week'} />
-      </section>
-
-      <section className="grid gap-4 lg:grid-cols-2">
-        <div className="panel p-5">
-          <div className="mb-4 flex items-start justify-between gap-3">
-            <div>
-              <h2 className="text-[15px] font-semibold">When to send</h2>
-              <p className="mt-0.5 text-[12px] text-[color:var(--color-ink-4)]">
-                Reply rate by weekday and hour. Darker is better.
-              </p>
-            </div>
-            <Link to="/controls" className="text-[12px] font-medium text-[color:var(--brand-logo-indigo)] hover:underline">
-              Shift the schedule
-            </Link>
-          </div>
-          <SendHeatmap heatmap={heatmap} />
-        </div>
-
-        <div className="panel p-5">
-          <h2 className="text-[15px] font-semibold">By station</h2>
-          <p className="mt-0.5 text-[12px] text-[color:var(--color-ink-4)]">
-            Bookings per 100 contacted (measurement)
-          </p>
-          <div className="mt-4 overflow-x-auto">
-            <table className="w-full text-left text-[13px]">
-              <thead>
-                <tr className="border-b rule text-[11px] uppercase tracking-[0.12em] text-[color:var(--color-ink-4)]">
-                  <th className="pb-2 font-medium">Station</th>
-                  <th className="pb-2 font-medium tabular-nums">Contacted</th>
-                  <th className="pb-2 font-medium tabular-nums">Rate</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[color:var(--color-rule)]">
-                {(Array.isArray(byStation) ? byStation : Object.entries(byStation).map(([k, v]) => ({ station: k, ...v })))
-                  .slice(0, 8)
-                  .map((row) => {
-                    const id = String(row.station_id ?? row.station ?? '');
-                    const name = row.station_name || row.station || id || '—';
-                    const contacted = row.leads_contacted ?? row.n_treated ?? row.contacted ?? 0;
-                    const booked = row.bookings_observed ?? row.booked ?? 0;
-                    const rate = contacted ? ((booked / contacted) * 100).toFixed(1) : '—';
-                    const paused = pausedIds.has(id) || Boolean(row.paused);
-                    return (
-                      <tr key={name} className={paused ? 'text-[color:var(--color-ink-4)]' : ''}>
-                        <td className="py-2.5">
-                          {name}
-                          {paused ? ' · paused' : ''}
-                        </td>
-                        <td className="py-2.5 tabular-nums">{fmt(contacted)}</td>
-                        <td className="py-2.5 tabular-nums font-medium">{rate}</td>
-                      </tr>
-                    );
-                  })}
-                {(!byStation || (Array.isArray(byStation) && byStation.length === 0)) && (
-                  <tr>
-                    <td colSpan={3} className="py-4 text-[color:var(--color-ink-4)]">
-                      Station breakdown unavailable
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </section>
-
-      <section className="panel p-5">
-        <h2 className="text-[15px] font-semibold">Message templates</h2>
-        <p className="mt-0.5 text-[12px] text-[color:var(--color-ink-4)]">
-          Campaign reply rates from analytics summary
-        </p>
-        <div className="mt-4 grid gap-2 sm:grid-cols-2">
-          <TemplateRow
-            label="Due soon · first contact"
-            value={summary.dueSoonReplyRate ?? summary.currentDueSoonReplyRate}
-          />
-          <TemplateRow
-            label="Passed · first contact"
-            value={summary.passedReplyRate ?? summary.currentPassedReplyRate}
-          />
-          <TemplateRow
-            label="Due soon contacted"
-            value={summary.dueSoonSentReachouts ?? summary.currentDueSoonSent}
-            format="count"
-          />
-          <TemplateRow
-            label="Passed contacted"
-            value={summary.passedSentReachouts ?? summary.currentPassedSent}
-            format="count"
-          />
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function MiniStat({ label, value, hint }) {
-  return (
-    <div className="rounded-lg bg-[color:var(--color-canvas-sunk)] px-3 py-3">
-      <div className="text-[11px] text-[color:var(--color-ink-4)]">{label}</div>
-      <div className="mt-1 text-[22px] font-semibold tabular-nums tracking-tight">{value}</div>
-      {hint && <div className="mt-1 text-[11px] text-[color:var(--color-ink-3)]">{hint}</div>}
-    </div>
-  );
-}
-
-function TemplateRow({ label, value, format = 'rate' }) {
-  let display = '—';
-  if (value != null && !Number.isNaN(Number(value))) {
-    display = format === 'count' ? fmt(value) : `${Number(value).toFixed?.(1) ?? value}${format === 'rate' && Number(value) <= 1 ? '' : ''}`;
-    if (format === 'rate') {
-      const n = Number(value);
-      display = n <= 1 ? `${(n * 100).toFixed(1)}%` : `${n.toFixed(1)}%`;
+  const perfBars = useMemo(() => {
+    const map = new Map();
+    for (const b of bookings) {
+      const ts = Date.parse(b.dorisBookingCreatedAt || b.appointmentAt || 0);
+      if (!Number.isFinite(ts)) continue;
+      const key = startOfHelsinkiWeek(new Date(ts)).toISOString().slice(0, 10);
+      const due = (b.campaignType || b.campaign_type || '').includes('due');
+      const cur = map.get(key) || { due: 0, passed: 0 };
+      if (due) cur.due += 1;
+      else cur.passed += 1;
+      map.set(key, cur);
     }
-  }
-  return (
-    <div className="flex items-center justify-between rounded-lg border rule px-3 py-2.5 text-[13px]">
-      <span className="text-[color:var(--color-ink-2)]">{label}</span>
-      <span className="font-semibold tabular-nums">{display}</span>
+    const rows = [...map.entries()].sort((a, b) => a[0].localeCompare(b[0])).slice(-13);
+    const max = Math.max(...rows.map(([, v]) => v.due + v.passed), 1);
+    return rows.map(([, v]) => ({
+      d: `${Math.max(2, Math.round((v.due / max) * 100))}%`,
+      p: `${Math.max(0, Math.round((v.passed / max) * 100))}%`,
+    }));
+  }, [bookings]);
+
+  const byStation = measurement?.by_station || [];
+  const heat = buildHeat(sendWindows);
+
+  const periodControls = (
+    <div className="rs-seg">
+      {PERIODS.map((p) => (
+        <button
+          key={p.key}
+          type="button"
+          aria-pressed={period === p.key}
+          onClick={() => setParam('period', p.key)}
+        >
+          {p.label}
+        </button>
+      ))}
     </div>
   );
-}
 
-function WeeklyBars({ rows, highlightCurrent }) {
-  if (!rows.length) {
-    return <div className="text-[13px] text-[color:var(--color-ink-4)]">No booking weeks yet.</div>;
-  }
-  const max = Math.max(...rows.map((r) => r.count), 1);
   return (
-    <div className="flex h-40 items-end gap-1.5 sm:gap-2">
-      {rows.map((row, i) => {
-        const height = Math.max(4, Math.round((row.count / max) * 100));
-        const isLast = i === rows.length - 1;
-        return (
-          <div key={row.key} className="flex min-w-0 flex-1 flex-col items-center gap-1">
-            <div className="text-[10px] tabular-nums text-[color:var(--color-ink-4)]">{row.count}</div>
-            <div
-              className={[
-                'w-full rounded-t-md transition-all',
-                highlightCurrent && isLast
-                  ? 'bg-[color:var(--brand-logo-blue)]'
-                  : 'bg-[color:var(--color-clay-soft)]',
-              ].join(' ')}
-              style={{ height: `${height}%` }}
-              title={`${row.label}: ${row.count}`}
-            />
-            <div className="truncate text-[9px] text-[color:var(--color-ink-4)]">{row.label}</div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
+    <>
+      <PageHeader
+        title="Performance"
+        subtitle="Every panel on this page uses the period below"
+        actions={
+          <>
+            {periodControls}
+            <button type="button" className="rs-btn">
+              Export
+            </button>
+          </>
+        }
+      />
 
-function SendHeatmap({ heatmap }) {
-  const { days, hours, cells, maxRate } = heatmap;
-  if (!days.length) {
-    return <div className="text-[13px] text-[color:var(--color-ink-4)]">No send-window data yet.</div>;
-  }
-  return (
-    <div className="overflow-x-auto">
+      {/* Mobile period chips */}
       <div
-        className="grid gap-1"
-        style={{ gridTemplateColumns: `40px repeat(${hours.length}, minmax(28px, 1fr))` }}
+        className="flex lg:hidden"
+        style={{
+          flex: 'none',
+          gap: 8,
+          padding: '12px 20px',
+          borderBottom: '1px solid var(--border-subtle)',
+          overflowX: 'auto',
+        }}
       >
-        <div />
-        {hours.map((h) => (
-          <div key={h} className="text-center text-[10px] text-[color:var(--color-ink-4)]">
-            {String(h).padStart(2, '0')}
-          </div>
+        {PERIODS.map((p) => (
+          <button
+            key={p.key}
+            type="button"
+            onClick={() => setParam('period', p.key)}
+            style={{
+              flex: 'none',
+              padding: '6px 13px',
+              borderRadius: 'var(--radius-pill)',
+              fontSize: 12,
+              whiteSpace: 'nowrap',
+              border: `1px solid ${period === p.key ? '#000' : 'var(--border-default)'}`,
+              background: period === p.key ? 'rgba(0,0,0,.04)' : 'transparent',
+              color: period === p.key ? '#000' : 'rgba(0,0,0,.55)',
+              fontWeight: period === p.key ? 500 : 400,
+              cursor: 'pointer',
+              fontFamily: 'inherit',
+            }}
+          >
+            {p.label}
+          </button>
         ))}
-        {days.map((day) => (
-          <div key={day} className="contents">
-            <div className="flex items-center text-[11px] text-[color:var(--color-ink-3)]">
-              {day.slice(0, 3)}
+      </div>
+
+      <div
+        style={{
+          overflowY: 'auto',
+          padding: '16px 20px 28px',
+          flex: 1,
+        }}
+        className="lg:!px-7 lg:!pt-6 lg:!pb-10"
+      >
+        <div className="rs-panel" style={{ overflow: 'hidden', marginBottom: 20 }}>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '16px 20px',
+              borderBottom: '1px solid var(--border-subtle)',
+              flexWrap: 'wrap',
+              gap: 12,
+            }}
+          >
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 600 }}>Bookings from outreach</div>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+                {periodWindowLabel(period)} · Europe/Helsinki
+              </div>
             </div>
-            {hours.map((hour) => {
-              const cell = cells.get(`${day}|${hour}`);
-              const rate = cell?.replyRate ?? 0;
-              const intensity = maxRate ? Math.max(rate / maxRate, 0.06) : 0.06;
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span className="hidden sm:inline" style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                Counting method
+              </span>
+              <div className="rs-seg">
+                <button
+                  type="button"
+                  aria-pressed={method === 'incremental'}
+                  onClick={() => setParam('method', 'incremental')}
+                >
+                  Incremental
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={method === 'attributed'}
+                  onClick={() => setParam('method', 'attributed')}
+                >
+                  Attributed
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div
+            className="grid"
+            style={{ gridTemplateColumns: 'minmax(0,1fr)', }}
+          >
+            <div
+              className="lg:grid"
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'minmax(0,1fr)',
+              }}
+            >
+              <div
+                className="lg:!grid"
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: '1fr',
+                }}
+              >
+                <style>{`@media(min-width:1024px){.perf-hero{grid-template-columns:300px minmax(0,1fr)!important}}`}</style>
+                <div className="perf-hero" style={{ display: 'grid', gridTemplateColumns: '1fr' }}>
+                  <div
+                    style={{
+                      padding: '24px 20px',
+                      borderRight: '1px solid var(--border-subtle)',
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: 10,
+                        letterSpacing: '.14em',
+                        textTransform: 'uppercase',
+                        color: 'var(--text-muted)',
+                      }}
+                    >
+                      {method === 'incremental' ? 'Incremental bookings' : 'Attributed bookings'}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 64,
+                        fontWeight: 600,
+                        letterSpacing: '-.03em',
+                        lineHeight: 1,
+                        marginTop: 12,
+                        fontVariantNumeric: 'tabular-nums',
+                      }}
+                    >
+                      {method === 'incremental' ? fmt(hero, 0) : fmt(hero)}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 13,
+                        color: 'rgba(0,0,0,.55)',
+                        marginTop: 12,
+                        lineHeight: 1.5,
+                      }}
+                    >
+                      {method === 'incremental' ? (
+                        <>
+                          Bookings above the control rate, from{' '}
+                          {fmt(measurement?.headline?.leads_contacted)} contacted. Attributed count
+                          is <b style={{ color: '#000' }}>{fmt(summary.bookingsAfterWhatsApp ?? bookings.length)}</b>.
+                        </>
+                      ) : (
+                        <>
+                          Registration-matched bookings after outreach. Incremental lift is{' '}
+                          <b style={{ color: '#000' }}>{fmt(incremental, 0)}</b> all-time.
+                        </>
+                      )}
+                    </div>
+                    {!measurement?.freshness?.holdout_table_ready && (
+                      <div
+                        style={{
+                          marginTop: 16,
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 8,
+                          padding: '8px 12px',
+                          background: 'var(--surface-sunken)',
+                          borderRadius: 'var(--radius-sm)',
+                        }}
+                      >
+                        <div
+                          style={{
+                            width: 6,
+                            height: 6,
+                            borderRadius: 'var(--radius-pill)',
+                            background: 'var(--secondary-yellow)',
+                          }}
+                        />
+                        <div style={{ fontSize: 11, color: 'rgba(0,0,0,.55)' }}>
+                          Control arm is observational
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="hidden lg:block" style={{ padding: '24px 24px 20px', minWidth: 0 }}>
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'baseline',
+                        justifyContent: 'space-between',
+                        marginBottom: 16,
+                      }}
+                    >
+                      <div
+                        style={{
+                          fontSize: 11,
+                          letterSpacing: '.14em',
+                          textTransform: 'uppercase',
+                          color: 'var(--text-muted)',
+                        }}
+                      >
+                        Bookings per week
+                      </div>
+                      <div style={{ display: 'flex', gap: 16, fontSize: 11, color: 'rgba(0,0,0,.55)' }}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                          <span
+                            style={{
+                              width: 8,
+                              height: 8,
+                              borderRadius: 2,
+                              background: 'var(--brand-logo-indigo)',
+                            }}
+                          />
+                          Due soon
+                        </span>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                          <span
+                            style={{
+                              width: 8,
+                              height: 8,
+                              borderRadius: 2,
+                              background: 'rgba(79,80,127,.42)',
+                            }}
+                          />
+                          Passed
+                        </span>
+                      </div>
+                    </div>
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'flex-end',
+                        gap: 8,
+                        height: 190,
+                        borderBottom: '1px solid var(--border-default)',
+                      }}
+                    >
+                      {(perfBars.length
+                        ? perfBars
+                        : Array.from({ length: 8 }, () => ({ d: '20%', p: '10%' }))
+                      ).map((b, i) => (
+                        <div
+                          key={i}
+                          style={{
+                            flex: 1,
+                            display: 'flex',
+                            flexDirection: 'column',
+                            justifyContent: 'flex-end',
+                            height: '100%',
+                          }}
+                        >
+                          <div style={{ background: 'rgba(79,80,127,.42)', height: b.p }} />
+                          <div style={{ background: 'var(--brand-logo-indigo)', height: b.d }} />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(2,1fr)',
+              borderTop: '1px solid var(--border-subtle)',
+            }}
+            className="lg:!grid-cols-4"
+          >
+            <FunnelCell label="Sent" value={fmt(sent)} />
+            <FunnelCell
+              label="Delivered"
+              value={fmt(delivered)}
+              hint={delivered != null && sent ? `${pct(delivered, sent)}% of sent` : undefined}
+            />
+            <FunnelCell
+              label="Replied"
+              value={fmt(replied)}
+              hint={sent ? `${pct(replied, sent)}% of sent` : undefined}
+            />
+            <FunnelCell
+              label="Booked without replying"
+              value={fmt(silentBookings)}
+              hint={
+                attributedCount
+                  ? `${pct(silentBookings, attributedCount)}% of attributed`
+                  : undefined
+              }
+            />
+          </div>
+        </div>
+
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: '1fr',
+            gap: 20,
+            alignItems: 'start',
+          }}
+          className="lg:!grid-cols-[minmax(0,1fr)_400px]"
+        >
+          <div className="rs-panel" style={{ overflow: 'hidden' }}>
+            <div
+              style={{
+                padding: '16px 20px',
+                borderBottom: '1px solid var(--border-subtle)',
+              }}
+            >
+              <div style={{ fontSize: 14, fontWeight: 600 }}>When to send</div>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+                Reply rate by weekday and hour. Darker is better.
+              </div>
+            </div>
+            <div style={{ padding: 20 }}>
+              <HeatGrid heat={heat} />
+              <div
+                style={{
+                  marginTop: 16,
+                  padding: '12px 14px',
+                  border: '1px solid var(--border-default)',
+                  borderRadius: 'var(--radius-sm)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 12,
+                  flexWrap: 'wrap',
+                }}
+              >
+                <div style={{ fontSize: 13, color: 'rgba(0,0,0,.8)' }}>
+                  Reply rates by send window — darker cells convert better.
+                </div>
+                <Link to="/controls" className="rs-btn-fill" style={{ textDecoration: 'none', padding: '6px 12px', fontSize: 12 }}>
+                  Shift the schedule
+                </Link>
+              </div>
+            </div>
+          </div>
+
+          <div className="rs-panel" style={{ overflow: 'hidden' }}>
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border-subtle)' }}>
+              <div style={{ fontSize: 14, fontWeight: 600 }}>By station</div>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+                Bookings per 100 contacted
+              </div>
+            </div>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'minmax(0,1fr) 60px 60px',
+                gap: 8,
+                padding: '10px 20px',
+                background: 'var(--surface-sunken)',
+                fontSize: 10,
+                letterSpacing: '.1em',
+                textTransform: 'uppercase',
+                color: 'var(--text-muted)',
+              }}
+            >
+              <span>Station</span>
+              <span style={{ textAlign: 'right' }}>Sent</span>
+              <span style={{ textAlign: 'right' }}>Rate</span>
+            </div>
+            {(Array.isArray(byStation) ? byStation : []).slice(0, 8).map((row) => {
+              const name = row.station_name || row.station || '—';
+              const contacted = row.leads_contacted || 0;
+              const booked = row.bookings_observed || 0;
+              const rate = contacted ? ((booked / contacted) * 100).toFixed(1) : '—';
+              const paused = pausedIds.has(String(row.station_id));
               return (
                 <div
-                  key={`${day}-${hour}`}
-                  title={cell ? `${day} ${hour}:00 · ${(rate * 100).toFixed(0)}% reply` : `${day} ${hour}:00`}
-                  className="aspect-square rounded-sm"
+                  key={name}
                   style={{
-                    backgroundColor: `rgba(76, 152, 253, ${intensity})`,
+                    display: 'grid',
+                    gridTemplateColumns: 'minmax(0,1fr) 60px 60px',
+                    gap: 8,
+                    padding: '13px 20px',
+                    borderBottom: '1px solid var(--border-subtle)',
+                    fontSize: 13,
+                    alignItems: 'center',
+                    color: paused ? 'var(--text-muted)' : '#000',
                   }}
-                />
+                >
+                  <span>
+                    {name}
+                    {paused ? ' · paused' : ''}
+                  </span>
+                  <span style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                    {fmt(contacted)}
+                  </span>
+                  <span
+                    style={{
+                      textAlign: 'right',
+                      fontWeight: 600,
+                      fontVariantNumeric: 'tabular-nums',
+                    }}
+                  >
+                    {rate}
+                  </span>
+                </div>
               );
             })}
           </div>
-        ))}
+        </div>
       </div>
+    </>
+  );
+}
+
+function FunnelCell({ label, value, hint }) {
+  return (
+    <div style={{ padding: '16px 20px', borderLeft: '1px solid var(--border-subtle)' }}>
+      <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{label}</div>
+      <div
+        style={{
+          fontSize: 22,
+          fontWeight: 600,
+          marginTop: 5,
+          fontVariantNumeric: 'tabular-nums',
+        }}
+      >
+        {value}
+      </div>
+      {hint && (
+        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3 }}>{hint}</div>
+      )}
     </div>
   );
 }
 
-function buildWeeklyRows(bookings) {
-  const map = new Map();
-  for (const b of bookings) {
-    const ts = Date.parse(b.dorisBookingCreatedAt || b.appointmentAt || 0);
-    if (!Number.isFinite(ts)) continue;
-    const start = startOfHelsinkiWeek(new Date(ts));
-    const key = start.toISOString().slice(0, 10);
-    map.set(key, (map.get(key) || 0) + 1);
+function HeatGrid({ heat }) {
+  const { days, hours, cells, maxRate } = heat;
+  if (!days.length) {
+    return <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>No send-window data yet.</div>;
   }
-  return [...map.entries()]
-    .sort((a, b) => a[0].localeCompare(b[0]))
-    .slice(-8)
-    .map(([key, count]) => ({
-      key,
-      count,
-      label: new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' }).format(
-        new Date(key)
-      ),
-    }));
+  return (
+    <div
+      style={{
+        display: 'grid',
+        gridTemplateColumns: `44px repeat(${hours.length}, minmax(0,1fr))`,
+        gap: 5,
+      }}
+    >
+      <div />
+      {hours.map((h) => (
+        <div key={h} style={{ fontSize: 11, color: 'var(--text-muted)', textAlign: 'center' }}>
+          {String(h).padStart(2, '0')}
+        </div>
+      ))}
+      {days.map((day) => (
+        <div key={day} style={{ display: 'contents' }}>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              fontSize: 11,
+              color: 'var(--text-muted)',
+            }}
+          >
+            {day.slice(0, 3)}
+          </div>
+          {hours.map((hour) => {
+            const cell = cells.get(`${day}|${hour}`);
+            const rate = cell?.replyRate ?? 0;
+            const intensity = maxRate ? Math.max(rate / maxRate, 0.08) : 0.08;
+            return (
+              <div
+                key={`${day}-${hour}`}
+                title={
+                  cell
+                    ? `${day} ${hour}:00 · ${(rate * 100).toFixed(0)}% reply`
+                    : `${day} ${hour}:00`
+                }
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  height: 38,
+                  borderRadius: 'var(--radius-sm)',
+                  fontSize: 12,
+                  fontWeight: 600,
+                  background: `rgba(79,80,127,${intensity})`,
+                  color: intensity > 0.55 ? '#fff' : 'rgba(0,0,0,.55)',
+                }}
+              >
+                {cell ? `${Math.round(rate * 100)}` : ''}
+              </div>
+            );
+          })}
+        </div>
+      ))}
+    </div>
+  );
 }
 
-function buildSendHeatmap(rows) {
-  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+function buildHeat(rows) {
+  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
   const hourSet = new Set();
   const cells = new Map();
   let maxRate = 0;
   for (const row of rows || []) {
-    const day = row.weekday || row.day || row.dow;
+    const dayRaw = row.weekday || row.day || row.dow;
     const hour = Number(row.hour ?? row.sendHour);
-    if (!day || Number.isNaN(hour)) continue;
-    const dayKey = String(day).slice(0, 3);
-    const normalized =
+    if (!dayRaw || Number.isNaN(hour)) continue;
+    const day =
       {
         Mon: 'Mon',
         Tue: 'Tue',
         Wed: 'Wed',
         Thu: 'Thu',
         Fri: 'Fri',
-        Sat: 'Sat',
-        Sun: 'Sun',
         Monday: 'Mon',
         Tuesday: 'Tue',
         Wednesday: 'Wed',
         Thursday: 'Thu',
         Friday: 'Fri',
-        Saturday: 'Sat',
-        Sunday: 'Sun',
-      }[day] || dayKey;
+      }[dayRaw] || String(dayRaw).slice(0, 3);
     hourSet.add(hour);
     const replyRate = row.replyRate > 1 ? row.replyRate / 100 : row.replyRate || 0;
-    cells.set(`${normalized}|${hour}`, { ...row, replyRate });
+    cells.set(`${day}|${hour}`, { replyRate });
     maxRate = Math.max(maxRate, replyRate);
   }
   const hours = [...hourSet].sort((a, b) => a - b);
-  const presentDays = days.filter((d) => hours.some((h) => cells.has(`${d}|${h}`)));
-  return { days: presentDays.length ? presentDays : days.slice(0, 5), hours: hours.length ? hours : [9, 11, 13, 15, 17], cells, maxRate };
+  const present = days.filter((d) => hours.some((h) => cells.has(`${d}|${h}`)));
+  return {
+    days: present.length ? present : days,
+    hours: hours.length ? hours : [9, 11, 13, 15, 17, 19],
+    cells,
+    maxRate,
+  };
 }

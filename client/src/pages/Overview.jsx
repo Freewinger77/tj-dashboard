@@ -1,14 +1,13 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
-import { ChevronRight, MessageSquare, Search } from 'lucide-react';
+import { Search } from 'lucide-react';
 import { fetchCustomers } from '../lib/api.js';
-import { relativeTime } from '../lib/format.js';
-import StatusPill from '../components/ui/StatusPill.jsx';
+import { relativeTime, formatPhone } from '../lib/format.js';
+import { PageHeader } from '../components/layout/Shell.jsx';
 import Skeleton from '../components/ui/Skeleton.jsx';
-import EmptyState from '../components/ui/EmptyState.jsx';
 
-const VIEWS = [
+const TABS = [
   { key: '', label: 'All' },
   { key: 'replied', label: 'Needs reply' },
   { key: 'delivered', label: 'No answer' },
@@ -21,7 +20,6 @@ export default function ConversationsPage() {
   const location = useLocation();
   const search = searchParams.get('search') || '';
   const statusFilter = searchParams.get('status') || '';
-  const campaignFilter = searchParams.get('campaign') || '';
   const sortBy = searchParams.get('sort') || 'last_inbound_at';
 
   const updateParam = (key, val, defaultValue = '') => {
@@ -32,12 +30,8 @@ export default function ConversationsPage() {
   };
 
   const { data, isLoading } = useQuery({
-    queryKey: ['customers', statusFilter, campaignFilter],
-    queryFn: () =>
-      fetchCustomers({
-        status: statusFilter || undefined,
-        campaign: campaignFilter || undefined,
-      }),
+    queryKey: ['customers', statusFilter],
+    queryFn: () => fetchCustomers({ status: statusFilter || undefined }),
   });
 
   const customers = data?.customers || [];
@@ -49,8 +43,7 @@ export default function ConversationsPage() {
       (c) =>
         c.number?.includes(q) ||
         c.name?.toLowerCase().includes(q) ||
-        String(c.customer_id || '').includes(q) ||
-        String(c.registration || c.reg || '').toLowerCase().includes(q)
+        String(c.customer_id || '').includes(q)
     );
   }, [customers, search]);
 
@@ -61,139 +54,278 @@ export default function ConversationsPage() {
       if (!aVal && !bVal) return 0;
       if (!aVal) return 1;
       if (!bVal) return -1;
-      // Oldest wait first for inbound
       if (sortBy === 'last_inbound_at') return new Date(aVal) - new Date(bVal);
       return new Date(bVal) - new Date(aVal);
     });
   }, [filtered, sortBy]);
 
-  const needsReplyCount = statusFilter === 'replied' ? customers.length : null;
-
   return (
-    <div className="space-y-5 animate-fade-up">
-      <header>
-        <h1 className="font-display text-[28px] font-semibold leading-none tracking-tight sm:text-[32px]">
-          Conversations
-        </h1>
-        <p className="mt-2 text-[13px] text-[color:var(--color-ink-3)]">
-          {customers.length > 0
+    <>
+      <PageHeader
+        title="Conversations"
+        subtitle={
+          customers.length
             ? `${customers.length.toLocaleString()} customers contacted over WhatsApp`
-            : 'Everyone contacted via WhatsApp.'}
-        </p>
-      </header>
+            : 'Everyone contacted via WhatsApp'
+        }
+        actions={
+          <div
+            style={{
+              width: 280,
+              padding: '8px 12px',
+              border: '1px solid var(--border-default)',
+              borderRadius: 'var(--radius-sm)',
+              fontSize: 13,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+            }}
+          >
+            <Search size={16} style={{ color: 'var(--text-muted)', flex: 'none' }} />
+            <input
+              value={search}
+              onChange={(e) => updateParam('search', e.target.value)}
+              placeholder="Search name, phone, registration…"
+              style={{
+                border: 0,
+                outline: 0,
+                background: 'transparent',
+                fontFamily: 'Inter,sans-serif',
+                fontSize: 13,
+                width: '100%',
+                color: '#000',
+              }}
+            />
+          </div>
+        }
+      />
 
-      <div className="flex flex-wrap gap-2">
-        {VIEWS.map((view) => {
-          const active = statusFilter === view.key;
+      {/* Tabs — desktop underline / mobile pills */}
+      <div
+        className="hidden lg:flex"
+        style={{
+          alignItems: 'center',
+          gap: 0,
+          padding: '0 28px',
+          borderBottom: '1px solid var(--border-subtle)',
+          flex: 'none',
+        }}
+      >
+        {TABS.map((tab) => {
+          const active = statusFilter === tab.key;
           return (
             <button
-              key={view.key || 'all'}
+              key={tab.key || 'all'}
               type="button"
               onClick={() => {
-                updateParam('status', view.key);
-                if (view.key === 'replied') updateParam('sort', 'last_inbound_at', 'last_inbound_at');
+                updateParam('status', tab.key);
+                if (tab.key === 'replied') updateParam('sort', 'last_inbound_at', 'last_inbound_at');
               }}
-              className={[
-                'rounded-lg border px-3 py-1.5 text-[12px] font-medium transition-colors',
-                active
-                  ? 'border-[color:var(--color-ink)] bg-[color:var(--color-ink)] text-[color:var(--color-canvas)]'
-                  : 'border-[color:var(--color-rule)] text-[color:var(--color-ink-3)] hover:bg-[color:var(--surface-hover)]',
-              ].join(' ')}
+              style={{
+                padding: '14px 4px 12px',
+                marginRight: 18,
+                fontSize: 14,
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                border: 0,
+                borderBottom: `2px solid ${active ? '#000' : 'transparent'}`,
+                color: active ? '#000' : 'rgba(0,0,0,.55)',
+                fontWeight: active ? 500 : 400,
+                background: 'transparent',
+                fontFamily: 'inherit',
+              }}
             >
-              {view.label}
-              {view.key === 'replied' && needsReplyCount != null ? ` ${needsReplyCount}` : ''}
+              {tab.label}
             </button>
           );
         })}
       </div>
 
-      <div className="panel overflow-hidden">
-        <div className="flex flex-col gap-3 border-b rule px-4 py-3 sm:flex-row sm:items-center sm:px-5">
-          <div className="relative flex-1">
-            <Search
-              size={14}
-              className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[color:var(--color-ink-4)]"
-            />
-            <input
-              type="text"
-              placeholder="Search name, phone, registration…"
-              value={search}
-              onChange={(e) => updateParam('search', e.target.value)}
-              className="w-full rounded-lg border rule bg-[color:var(--color-canvas)] py-2 pl-8 pr-3 text-[13px] text-[color:var(--color-ink)] placeholder:text-[color:var(--color-ink-4)] focus:border-[color:var(--brand-logo-blue)] focus:outline-none"
-            />
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <select
-              value={campaignFilter}
-              onChange={(e) => updateParam('campaign', e.target.value)}
-              className="rounded-lg border rule bg-[color:var(--color-canvas)] px-3 py-2 text-[12px] focus:outline-none"
+      <div
+        className="flex lg:hidden"
+        style={{
+          flex: 'none',
+          gap: 8,
+          padding: '12px 20px',
+          borderBottom: '1px solid var(--border-subtle)',
+          overflowX: 'auto',
+        }}
+      >
+        {TABS.map((tab) => {
+          const active = statusFilter === tab.key;
+          return (
+            <button
+              key={tab.key || 'all'}
+              type="button"
+              onClick={() => updateParam('status', tab.key)}
+              style={{
+                flex: 'none',
+                padding: '6px 13px',
+                borderRadius: 'var(--radius-pill)',
+                fontSize: 12,
+                whiteSpace: 'nowrap',
+                border: `1px solid ${active ? '#000' : 'var(--border-default)'}`,
+                background: active ? 'rgba(0,0,0,.04)' : 'transparent',
+                color: active ? '#000' : 'rgba(0,0,0,.55)',
+                fontWeight: active ? 500 : 400,
+                cursor: 'pointer',
+                fontFamily: 'inherit',
+              }}
             >
-              <option value="">All campaigns</option>
-              <option value="due_soon">Due soon</option>
-              <option value="passed">Passed</option>
-            </select>
-            <select
-              value={sortBy}
-              onChange={(e) => updateParam('sort', e.target.value, 'last_inbound_at')}
-              className="rounded-lg border rule bg-[color:var(--color-canvas)] px-3 py-2 text-[12px] focus:outline-none"
-            >
-              <option value="last_inbound_at">Oldest wait first</option>
-              <option value="last_outbound_at">Last sent</option>
-            </select>
+              {tab.label}
+            </button>
+          );
+        })}
+      </div>
+
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          flex: 1,
+          minHeight: 0,
+        }}
+      >
+        <div
+          className="hidden lg:flex"
+          style={{
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '6px 28px 6px 24px',
+            background: 'var(--surface-sunken)',
+            borderBottom: '1px solid var(--border-subtle)',
+            flex: 'none',
+            gap: 12,
+          }}
+        >
+          <button
+            type="button"
+            onClick={() =>
+              updateParam(
+                'sort',
+                sortBy === 'last_inbound_at' ? 'last_outbound_at' : 'last_inbound_at',
+                'last_inbound_at'
+              )
+            }
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              fontSize: 13,
+              color: 'rgba(0,0,0,.55)',
+              cursor: 'pointer',
+              border: 0,
+              background: 'transparent',
+              fontFamily: 'inherit',
+            }}
+          >
+            {sortBy === 'last_inbound_at' ? 'Oldest wait first' : 'Last sent'}
+          </button>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+            Showing {sorted.length}
+            {customers.length !== sorted.length ? ` of ${customers.length}` : ''}
           </div>
         </div>
 
-        {isLoading ? (
-          <div className="space-y-3 p-4">
-            {Array.from({ length: 6 }).map((_, i) => (
-              <Skeleton key={i} className="h-14" />
-            ))}
-          </div>
-        ) : sorted.length === 0 ? (
-          <EmptyState
-            icon={MessageSquare}
-            title="No conversations"
-            hint="Trigger a batch from Controls to start contacting leads."
-          />
-        ) : (
-          <div className="divide-y divide-[color:var(--color-rule)]">
-            {sorted.map((c) => (
-              <Link
-                key={c.number}
-                to={`/customers/${c.number}`}
-                state={{ returnTo: `${location.pathname}${location.search}` }}
-                className="flex items-center gap-3 px-4 py-3.5 transition-colors hover:bg-[color:var(--surface-hover)] sm:px-5"
-              >
-                <div className="grid size-9 shrink-0 place-items-center rounded-full bg-[color:var(--color-canvas-sunk)] text-[11px] font-semibold text-[color:var(--brand-logo-indigo)]">
-                  {(c.name || '?').slice(0, 1).toUpperCase()}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="truncate text-[13px] font-medium">
-                      {c.name || 'Customer'}
-                    </span>
-                    <StatusPill status={c.status} />
+        <div style={{ overflowY: 'auto', flex: 1 }}>
+          {isLoading ? (
+            <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {Array.from({ length: 6 }).map((_, i) => (
+                <Skeleton key={i} className="h-14" />
+              ))}
+            </div>
+          ) : sorted.length === 0 ? (
+            <div style={{ padding: 28, fontSize: 13, color: 'var(--text-muted)' }}>
+              No conversations match these filters.
+            </div>
+          ) : (
+            sorted.map((c) => {
+              const needs = c.status === 'replied';
+              return (
+                <Link
+                  key={c.number}
+                  to={`/customers/${c.number}`}
+                  state={{ returnTo: `${location.pathname}${location.search}` }}
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: '8px minmax(0,1fr) auto',
+                    gap: 14,
+                    alignItems: 'center',
+                    padding: '14px 20px',
+                    borderBottom: '1px solid var(--border-subtle)',
+                    textDecoration: 'none',
+                    color: 'inherit',
+                  }}
+                  className="rs-hover lg:!px-7"
+                >
+                  <div
+                    style={{
+                      width: 8,
+                      height: 8,
+                      borderRadius: 'var(--radius-pill)',
+                      background: needs
+                        ? 'var(--secondary-red)'
+                        : c.status === 'booked'
+                          ? 'var(--secondary-green)'
+                          : 'rgba(0,0,0,.18)',
+                    }}
+                  />
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontSize: 14, fontWeight: 500, whiteSpace: 'nowrap' }}>
+                        {c.name || formatPhone(c.number)}
+                      </span>
+                      {needs && c.last_inbound_at && (
+                        <span
+                          style={{
+                            fontSize: 11,
+                            fontWeight: 500,
+                            padding: '2px 8px',
+                            borderRadius: 'var(--radius-pill)',
+                            background: 'rgba(255,71,71,.12)',
+                            color: 'rgb(190,40,32)',
+                          }}
+                        >
+                          {relativeTime(c.last_inbound_at).replace(' ago', '')}
+                        </span>
+                      )}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 12,
+                        color: 'var(--text-muted)',
+                        marginTop: 3,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {c.campaign_type === 'passed'
+                        ? 'Passed'
+                        : c.campaign_type === 'due_soon'
+                          ? 'Due soon'
+                          : 'Outreach'}
+                      {c.last_inbound_at
+                        ? ` · replied ${relativeTime(c.last_inbound_at)}`
+                        : c.last_outbound_at
+                          ? ` · sent ${relativeTime(c.last_outbound_at)}`
+                          : ''}
+                    </div>
                   </div>
-                  <div className="mt-0.5 truncate text-[12px] text-[color:var(--color-ink-3)]">
-                    {c.campaign_type === 'passed' ? 'Passed' : c.campaign_type === 'due_soon' ? 'Due soon' : 'Outreach'}
+                  <div
+                    className="hidden sm:block"
+                    style={{ fontSize: 12, color: 'var(--text-muted)', textAlign: 'right' }}
+                  >
                     {c.last_inbound_at
-                      ? ` · replied ${relativeTime(c.last_inbound_at)}`
-                      : c.last_outbound_at
-                        ? ` · sent ${relativeTime(c.last_outbound_at)}`
-                        : ''}
+                      ? relativeTime(c.last_inbound_at)
+                      : relativeTime(c.last_outbound_at)}
                   </div>
-                </div>
-                <div className="hidden text-right text-[11px] text-[color:var(--color-ink-4)] sm:block">
-                  {c.last_inbound_at
-                    ? relativeTime(c.last_inbound_at)
-                    : relativeTime(c.last_outbound_at)}
-                </div>
-                <ChevronRight size={14} className="text-[color:var(--color-ink-5)]" />
-              </Link>
-            ))}
-          </div>
-        )}
+                </Link>
+              );
+            })
+          )}
+        </div>
       </div>
-    </div>
+    </>
   );
 }
