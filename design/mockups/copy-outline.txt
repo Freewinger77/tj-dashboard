@@ -1,0 +1,340 @@
+TJ Katsastus dashboard — one direction, five screens
+notes
+Read this first
+Assumptions
+Built from the
+tj-dashboard
+repo, not the live render — I read Shell, Overview, Stats, Settings, Conversation and the measurement runbook.
+Audience is station managers and HQ admins, so the home screen answers “is it running, and what needs me” before it shows analytics.
+Station names, avatars and all figures are placeholders except the ones in the measurement runbook (2,209 contacted · 248 incremental · 3.96×).
+Visual language follows the RapidScreen design system: Inter, flat surfaces, hairline rules, no shadows. The warm cream/Fraunces skin is gone — say the word if you want it kept.
+What's repeated today
+Bookings is printed three times on Stats
+— the KPI card, the chart's “Bookings” stat, and the 50px number in the right aside. Same value, three weights.
+Replied / No reply appears twice
+— once above the weekly bars, once as “Reply split” in the aside. So does the due-soon / passed split, which is also the chart legend.
+Four unlabelled “sent” numbers
+— Total sent, Due soon sent, and three calendar-period cards, each on a different time window, none of them stated on the card.
+Two answers to “how many bookings did outreach cause”
+— Stats attributes by registration match, Value computes incremental lift. Neither page mentions the other.
+Settings answers “is outreach on?” in two places
+— auto-send toggles and station pause, each with its own explainer paragraph and its own coloured status banner.
+The phone number renders three times
+in a conversation — header title fallback, header subtitle, and the info panel's Phone row.
+The move
+One number, one place.
+Each metric is rendered once at full size; everything else references it by name.
+One period control
+at the top of Performance, replacing per-panel windows.
+Stats + Value become one page
+with a method switch, so the two booking numbers sit side by side instead of on separate tabs.
+Home becomes Today
+— run state and a work queue, not a customer list.
+Controls collapses to one matrix
+: campaign × station, plus a master switch.
+1a
+Today — the new home. Run state, then work, then trend.
+TJ
+TJ&nbsp;Katsastus
+Today
+Conversations
+14
+Performance
+Controls
+Capture
+Scope
+All 5 stations
+Bashir
+EN
+FI
+Good afternoon, Pyry
+Sunday 9 August · updated 17:04
+Send a batch
+Pause all outreach
+Outreach is running
+Campaigns
+Due soon · Passed
+Stations
+4 of 5 sending
+Next batch
+18:00 · up to 16 leads
+Controls →
+Needs you
+21 items
+14 replies waiting for a person
+Oldest has waited 3h 40m — Tampere and Nokia
+since 13:24
+Open
+Ylöjärvi has been paused for 11 days
+≈ 190 due-soon leads there have gone uncontacted
+29 Jul
+Resume
+6 reminders are overdue by more than 14 days
+Expire them before the scheduler picks them up
+Expire
+1 message failed to deliver
++358 40 555 0182 — number not on WhatsApp
+11:07
+Review
+This week
+Mon 3 – Sun 9 Aug · every number below is on this window
+Performance →
+Sent
+412
+Delivered
+397
+96% of sent
+Replied
+88
+22% of delivered
+Booked
+46
+11% of sent
+8 weeks ago
+bookings per week · this week highlighted
+now
+Value of the programme
+All time · 2,209 customers contacted
+Incremental bookings
+248
+Bookings above what the control arm would have produced on its own.
+3.96×
+the control rate.
+Due soon
+4.07×
+Passed
+3.73×
+Control arm is observational until the holdout table is installed.
+Leads left to contact
+due soon
+3,180
+≈ 8 weeks at current pace
+Tampere
+1,204
+Nokia
+857
+Ylöjärvi
+581
+Kangasala
+374
+Lempäälä
+164
+Ylöjärvi greyed out — station paused.
+1b
+Performance — Stats and Value merged. One period control, one bookings number with a stated method.
+Every panel on this page uses the period below
+Week
+Month
+90 days
+Custom
+Export
+Bookings from outreach
+11 May – 9 Aug 2026 · Europe/Helsinki
+Counting method
+Incremental
+Attributed
+Bookings above the control rate, from 2,209 contacted customers. Attributed count is
+312
+— the difference is bookings the control arm suggests would have happened anyway.
+Control arm is observational
+Bookings per week
+Control
+11 May
+15 Jun
+20 Jul
+9 Aug
+2,209
+2,118
+471
+Booked without replying
+189
+61% of attributed bookings
+When to send
+Reply rate by weekday and hour. Darker is better.
+0%
+40%
+09
+11
+13
+15
+17
+19
+Mon
+Tue
+Wed
+38%
+Thu
+Fri
+Wednesday 15:00 replies at
+— nearly double Friday afternoon.
+Shift the schedule
+By station
+Bookings per 100 contacted
+Station
+Rate
+874
+16.2
+602
+14.8
+411
+13.1
+203
+11.4
+Ylöjärvi · paused
+119
+9.7
+Message templates
+Due soon · first contact
+18.9%
+Due soon · reminder 1
+11.2%
+Passed · first contact
+9.4%
+Passed · reminder 2
+2.1%
+1c
+Conversations — saved views instead of three dropdowns, and the number shown once.
+Saved views
+Tampere · needs reply
+Booked this week
+Stopped by customer
+2,209 customers contacted over WhatsApp
+Search name, phone, registration…
+Filters
+Needs reply
+In progress
+63
+No answer
+1,684
+Stopped
+47
+All
+Oldest wait first
+All stations
+Waiting longest: 3h 40m
+Arslan Mehmood
+“Onko teillä aikaa ensi viikon tiistaina aamupäivällä?”
+ABC-123
+13:24
+Marja Lehtinen
+“Paljonko katsastus maksaa?”
+KPO-441
+14:59
+Jussi Virtanen
+“Kiitos, varaan ajan itse netistä.”
+TRL-908
+16:17
+Anneli Koskinen
+“Auto on myyty, älkää lähettäkö enempää viestejä.”
+XZO-220
+16:42
+Petri Salminen
+“Joo sopii. Torstai klo 10?”
+MFA-517
+16:55
+Phone numbers, customer IDs and template names live in the conversation, not the list.
+Showing 5 of 14
+1d
+Conversation — one identity block, one timeline, actions where you need them.
+ABC-123 · Tampere · due 24 Aug
+Mark booked
+Stop reminders
+Thursday 6 August
+Hei Arslan! Auton ABC-123 katsastus erääntyy 24.8. Varaa aika TJ Katsastus Tampereelta — vastaa tähän viestiin niin autamme.
+10:02 · delivered · read
+Onko teillä aikaa ensi viikon tiistaina aamupäivällä?
+Reminders are on hold while this reply is unanswered
+Tarjoa aikoja
+Hinnasto
+Aukioloajat
++ canned
+Write a reply…
+Send
++358 40 555 0119
+Vehicle
+Inspection due
+24 Aug 2026
+Campaign
+Outreach so far
+First contact sent
+6 Aug, 10:02 · template due_soon_1
+Read
+6 Aug, 10:41
+Customer replied
+Today, 13:24 · awaiting a person
+Reminder 1 — on hold
+Would have sent 9 Aug, 10:00
+Customer ID 84120 · station 3 · shown only here, on request.
+1e
+Controls — the three Settings cards become one matrix and one send box.
+Who gets contacted, from which station, and how often.
+Outreach on
+Campaign × station
+A station that is off sends neither first contacts nor reminders.
+Daily cap
+1,204 leads waiting
+60 / day
+857 leads waiting
+40 / day
+581 leads waiting
+374 leads waiting
+30 / day
+164 leads waiting
+20 / day
+Schedule
+Batches run automatically inside this window.
+Hours
+08:00 – 18:00
+Interval
+Every 2 hours
+Batch size
+12 due soon · 4 passed
+Wednesday afternoon replies best.
+See the evidence
+Send a batch now
+On top of the schedule, respecting station switches above.
+50
+Eligible right now
+50 of 3,180
+Cost
+50 × $0.06
+Total
+$3.00
+Send to 50 customers
+Holdout customers are excluded automatically.
+1f
+Mobile — the same two questions, thumb-sized.
+All stations ▾
+Outreach running
+Next batch 18:00 · 4 of 5 stations
+21
+14 replies waiting
+Oldest 3h 40m
+Ylöjärvi paused 11 days
+≈ 190 leads uncontacted
+6 overdue reminders
+Expire before re-enabling
+Mon 3 – Sun 9
+11% of sent booked · 22% replied
+3.96× the control rate, all time
+Chats
+Stats
+Search
+Needs reply 14
+3h 40m
+Onko teillä aikaa ensi viikon tiistaina…
+ABC-123 · Tampere · Due soon
+2h 05m
+Paljonko katsastus maksaa?
+KPO-441 · Nokia · Passed
+47m
+Kiitos, varaan ajan itse netistä.
+TRL-908 · Tampere · Due soon
+22m
+Auto on myyty, älkää lähettäkö…
+XZO-220 · Kangasala · Passed
+9m
+Joo sopii. Torstai klo 10?
+MFA-517 · Lempäälä · Due soon
+Try next: "keep the cream/Fraunces skin instead" · "show me
+without the Value card" · "add the Capture screen"

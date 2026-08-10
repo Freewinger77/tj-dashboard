@@ -15,8 +15,10 @@ export async function fetchLeadPoolSummary() {
   return data;
 }
 
-export async function fetchAnalytics() {
-  const { data } = await api.get('/analytics');
+export async function fetchAnalytics(period = 'all') {
+  const { data } = await api.get('/analytics', {
+    params: { period },
+  });
   return data;
 }
 

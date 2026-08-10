@@ -34,7 +34,7 @@ export default function StatsPage() {
 
   const analyticsQuery = useQuery({
     queryKey: ['analytics'],
-    queryFn: fetchAnalytics,
+    queryFn: () => fetchAnalytics('all'),
     refetchInterval: 5 * 60_000,
   });
 

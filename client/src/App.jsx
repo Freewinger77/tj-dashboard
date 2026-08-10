@@ -1,23 +1,30 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import Shell from './components/layout/Shell.jsx';
-import CustomersPage from './pages/Overview.jsx';
+import TodayPage from './pages/Today.jsx';
+import ConversationsPage from './pages/Overview.jsx';
 import ConversationPage from './pages/Conversation.jsx';
-import StatsPage from './pages/Stats.jsx';
-import SettingsPage from './pages/Settings.jsx';
+import PerformancePage from './pages/Performance.jsx';
+import ControlsPage from './pages/Controls.jsx';
 import BookingCapturePage from './pages/BookingCapture.jsx';
-import MeasurementPage from './pages/Measurement.jsx';
 
 export default function App() {
   return (
     <Shell>
       <Routes>
-        <Route path="/" element={<CustomersPage />} />
-        <Route path="/stats" element={<StatsPage />} />
-        <Route path="/measurement" element={<MeasurementPage />} />
-        <Route path="/analytics" element={<Navigate to="/stats" replace />} />
+        <Route path="/" element={<TodayPage />} />
+        <Route path="/conversations" element={<ConversationsPage />} />
+        <Route path="/performance" element={<PerformancePage />} />
+        <Route path="/controls" element={<ControlsPage />} />
         <Route path="/capture" element={<BookingCapturePage />} />
-        <Route path="/settings" element={<SettingsPage />} />
         <Route path="/customers/:phone" element={<ConversationPage />} />
+
+        {/* Legacy redirects */}
+        <Route path="/stats" element={<Navigate to="/performance" replace />} />
+        <Route path="/analytics" element={<Navigate to="/performance" replace />} />
+        <Route path="/measurement" element={<Navigate to="/performance?method=incremental" replace />} />
+        <Route path="/settings" element={<Navigate to="/controls" replace />} />
+        <Route path="/customers" element={<Navigate to="/conversations" replace />} />
+
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Shell>
