@@ -31,7 +31,7 @@ function fmtPct(rate, digits = 1) {
 
 export default function MeasurementPage() {
   const [tab, setTab] = useState('value');
-  const [ticket, setTicket] = useState(89);
+  const [ticket, setTicket] = useState(63);
   const [fee, setFee] = useState(12);
   const [volume, setVolume] = useState('');
 

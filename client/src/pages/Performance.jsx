@@ -24,8 +24,8 @@ const PERIODS = [
   { key: 'all', label: 'All time' },
 ];
 
-/** Avg inspection ticket used for incremental revenue (matches Measurement default). */
-const AVG_TICKET_EUR = 89;
+/** Ticket value used for incremental impact revenue. */
+const AVG_TICKET_EUR = 63;
 
 const METHOD_HELP = {
   attributed:
