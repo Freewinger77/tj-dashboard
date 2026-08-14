@@ -1,0 +1,38 @@
+---
+description: Shared project memory rules
+alwaysApply: true
+---
+# Shared Project Memory
+
+Use mnem as the project's persistent shared engineering memory.
+
+The developer runbook (unusual cases included) lives at `.cursor/docs/mnem-developer-runbook.md`.
+
+Before substantial work:
+- Retrieve relevant mnem context automatically (`mnem retrieve` / `mnem_retrieve`).
+- Check existing decisions, business rules, bugs, constraints and architecture before making assumptions.
+- If `.mnem/` or this rule is missing, stop and follow the runbook before substantial work.
+
+During work:
+- Store important durable discoveries in mnem.
+- Store architecture decisions and WHY they were made.
+- Store user stories/business rules that affect implementation.
+- Store important API quirks, bug root causes and rejected approaches worth remembering.
+- Link knowledge to relevant files/services/entities where useful.
+
+Do NOT store:
+- terminal logs
+- whole conversations
+- temporary debugging
+- routine code changes
+- large tool outputs
+- transient errors
+- secrets, tokens, passwords, API keys, cookies, `.env` contents
+- personal machine paths, local ports, or one-off cloud-agent workspace paths
+
+Store the conclusion, not the journey.
+
+After substantial work:
+- Persist important new knowledge into mnem before finishing.
+
+Treat `.mnem/` changes as part of the codebase and include relevant changes in the normal Git/PR workflow.

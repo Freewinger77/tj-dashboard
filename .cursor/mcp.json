@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "mnem": {
+      "command": "bash",
+      "args": [".cursor/bin/mnem-mcp"]
+    }
+  }
+}
