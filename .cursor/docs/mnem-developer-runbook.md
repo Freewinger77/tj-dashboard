@@ -124,16 +124,28 @@ mnem doctor
 
 ### 4. Connect mnem to Cursor (laptops only)
 
+This repo already commits `.cursor/mcp.json` so Cursor starts `mnem mcp` from the project root (it walks up to `.mnem/`). You still need the `mnem` binary on your PATH (step 2).
+
+Restarting Cursor does **nothing** until:
+
+1. `mnem` is installed on **this laptop** (the Cloud Agent install does not count)
+2. This branch/PR is checked out so `.cursor/mcp.json` and `.mnem/` exist
+3. Cursor is fully quit and reopened
+4. You enable the **mnem** MCP server if Cursor shows a prompt
+
+Optional extra (user-level `~/.cursor/mcp.json`):
+
 ```bash
-mnem integrate cursor
+cd /path/to/this-repo
+mnem integrate cursor --target-repo .
 mnem integrate --check
 ```
 
+**Always pass `--target-repo .`.** Plain `mnem integrate cursor` points MCP at the **global** graph (`~/.mnemglobal/.mnem`), which does not travel with git.
+
 Fully quit Cursor **as an application** (not just the terminal) and reopen it.
 
-mnem then runs through Cursor automatically — no separate server needs starting.
-
-**Cloud Agents / headless VMs:** `mnem doctor` will say `cursor host not installed` and `mnem integrate cursor` cannot wire a desktop. That is expected. Commit `.cursor/rules/mnem.mdc` in the repo; agents should fall back to the `mnem` CLI (`retrieve` / `add` / `ingest`). Do not block the PR on desktop integration.
+**Cloud Agents / headless VMs:** `mnem doctor` will say `cursor host not installed`. That is expected. The committed rule + `.cursor/mcp.json` are the repo-side wiring; agents should fall back to the `mnem` CLI if MCP tools are missing.
 
 ---
 
