@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { supabase, fetchAll } from '../lib/supabase.js';
+import { helsinkiMidnightUTC, periodCutoffMs, startOfHelsinkiMonth } from '../lib/helsinki.js';
 
 const router = Router();
 
@@ -8,21 +9,30 @@ const router = Router();
 const CAMPAIGN_RESTART_AT = new Date('2026-05-29T09:31:00+03:00').getTime();
 const CACHE_TTL_MS = 10 * 60 * 1000;
 const BOOKED_STOP_REASONS = new Set(['booked', 'booked_from_snapshot']);
+const STATION_NAMES = {
+  58: 'Vaajakoski',
+  59: 'Jämsä',
+  60: 'Laukaa',
+  61: 'Muurame',
+};
 
-let cache = { at: 0, data: null };
+/** @type {Map<string, { at: number, data: object }>} */
+const cacheByPeriod = new Map();
 
 router.get('/', async (req, res) => {
   const refresh = req.query.refresh === '1';
-  if (!refresh && cache.data && Date.now() - cache.at < CACHE_TTL_MS) {
-    return res.json(cache.data);
+  const period = ['week', 'month', 'all'].includes(req.query.period) ? req.query.period : 'all';
+  const cached = cacheByPeriod.get(period);
+  if (!refresh && cached && Date.now() - cached.at < CACHE_TTL_MS) {
+    return res.json(cached.data);
   }
 
-  const data = await buildAnalytics();
-  cache = { at: Date.now(), data };
+  const data = await buildAnalytics(period);
+  cacheByPeriod.set(period, { at: Date.now(), data });
   res.json(data);
 });
 
-async function buildAnalytics() {
+async function buildAnalytics(period = 'all') {
   // PostgREST hard-caps each request at 1000 rows, so paginate to get every
   // session/status (we have >1200 sessions) instead of silently truncating.
   const [allSessions, allStatuses] = await Promise.all([
@@ -42,8 +52,14 @@ async function buildAnalytics() {
     ),
   ]);
 
+  const cutoff = periodCutoffMs(period);
   const sessions = allSessions
     .filter((session) => session.customer_id && session.customer_id !== 999999)
+    .filter((session) => {
+      if (!cutoff) return true;
+      const ts = Date.parse(session.last_outbound_at);
+      return Number.isFinite(ts) && ts >= cutoff;
+    })
     .sort((a, b) => new Date(a.last_outbound_at) - new Date(b.last_outbound_at));
   const statusByNumber = buildStatusMap(allStatuses);
   const rows = sessions.map((session) => formatSession(session, statusByNumber));
@@ -52,8 +68,26 @@ async function buildAnalytics() {
   const activeBase = buildBaseStats(activeRows);
 
   const snapshotsByReg = await loadSnapshotsByReg();
-  const bookings = buildBookings(sessions, snapshotsByReg);
+  // Bookings for the period: detection/created time in window (matches Performance hero).
+  const allBookings = buildBookings(
+    allSessions.filter((session) => session.customer_id && session.customer_id !== 999999),
+    snapshotsByReg
+  );
+  // Attributed hero: booking detection / created time in the window.
+  const bookings = allBookings.filter((booking) => {
+    if (!cutoff) return true;
+    const ts = Date.parse(booking.dorisBookingCreatedAt || booking.appointmentAt || 0);
+    return Number.isFinite(ts) && ts >= cutoff;
+  });
+  // Rates / heatmap: bookings from messages sent in the same window as `rows`
+  // so booked÷contacted stays coherent (never 100%+ from older sends).
+  const bookingsFromPeriodSends = allBookings.filter((booking) => {
+    if (!cutoff) return true;
+    const ts = Date.parse(booking.whatsappSentAt || 0);
+    return Number.isFinite(ts) && ts >= cutoff;
+  });
   const reminders = buildReminderSummary(sessions, allStatuses, snapshotsByReg);
+  const byStation = buildByStation(rows, bookingsFromPeriodSends);
 
   const repliedBookings = bookings.filter((booking) => booking.customerReplied).length;
   const matchedBookings = bookings.filter((booking) => booking.calendarMatched).length;
@@ -63,11 +97,32 @@ async function buildAnalytics() {
   const dueSoonDelivered = rows.filter((row) => row.campaignType === 'due_soon' && row.delivered).length;
   const dueSoonBookings = bookings.filter((booking) => booking.campaignType === 'due_soon').length;
   const activeDueSoonSent = activeRows.filter((row) => row.campaignType === 'due_soon').length;
-  const sendTimePerformance = buildSendTimePerformance(rows, bookings);
+  const sendTimePerformance = buildSendTimePerformance(rows, bookingsFromPeriodSends);
   const replyTiming = buildReplyTiming(rows);
+
+  // Prior calendar month (Helsinki) — only useful when viewing "month".
+  let priorMonthAttributed = null;
+  if (period === 'month') {
+    const monthStart = startOfHelsinkiMonth();
+    const midPrev = new Date(monthStart.getTime() - 15 * 86400000);
+    const prevParts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Europe/Helsinki',
+      year: 'numeric',
+      month: '2-digit',
+    }).formatToParts(midPrev);
+    const py = prevParts.find((p) => p.type === 'year')?.value;
+    const pm = prevParts.find((p) => p.type === 'month')?.value;
+    const prevStart = helsinkiMidnightUTC(py, pm, 1).getTime();
+    const monthStartMs = monthStart.getTime();
+    priorMonthAttributed = allBookings.filter((booking) => {
+      const ts = Date.parse(booking.dorisBookingCreatedAt || booking.appointmentAt || 0);
+      return Number.isFinite(ts) && ts >= prevStart && ts < monthStartMs;
+    }).length;
+  }
 
   return {
     generated_at: new Date().toISOString(),
+    period,
     bookingSource: 'snapshots',
     doris: { ok: true, error: null, source: 'snapshots' },
     summary: {
@@ -84,6 +139,7 @@ async function buildAnalytics() {
       highConfidenceBookings: matchedBookings,
       reviewBookings: bookings.length - matchedBookings,
       totalAttributedBookings: bookings.length,
+      priorMonthAttributed,
       currentSent: activeBase.contacted,
       currentDueSoonSent: activeDueSoonSent,
       currentDelivered: activeBase.delivered,
@@ -101,9 +157,12 @@ async function buildAnalytics() {
       remindersByStage: reminders.byStage,
       replyRate: percent(base.replied, base.contacted),
       deliveredReplyRate: percent(base.replied, base.delivered),
-      attributedBookingRate: percent(bookings.length, base.contacted),
-      deliveredBookingRate: percent(bookings.length, base.delivered),
+      // Conversion of period outreach (send-aligned), not detection-dated attributed count.
+      attributedBookingRate: percent(bookingsFromPeriodSends.length, base.contacted),
+      deliveredBookingRate: percent(bookingsFromPeriodSends.length, base.delivered),
+      bookingsFromPeriodSends: bookingsFromPeriodSends.length,
     },
+    byStation,
     bookingsAfterWhatsApp: bookings,
     sendTimePerformance,
     bestSendWindows: sendTimePerformance
@@ -185,13 +244,61 @@ function buildBookings(sessions, snapshotsByReg) {
       bookedWeek: matchedSnap?.week ?? null,
       isBaseline: Boolean(matchedSnap?.is_baseline),
       messagedAfterRestart: Number.isFinite(sentMs) && sentMs >= CAMPAIGN_RESTART_AT,
-      station: matchedSnap?.station_name || '',
+      station_id: matchedSnap?.station_id ?? session.station_id ?? null,
+      station:
+        matchedSnap?.station_name ||
+        STATION_NAMES[session.station_id] ||
+        '',
       stopReason: session.stop_reason || 'active',
       campaignType: session.campaign_type || outbound.campaign_type || '',
       sendDayHour: dayHourKey(sentAt),
     });
   }
   return bookings.sort((a, b) => new Date(b.appointmentAt || 0) - new Date(a.appointmentAt || 0));
+}
+
+function buildByStation(rows, bookings) {
+  const map = new Map();
+  for (const [id, name] of Object.entries(STATION_NAMES)) {
+    const stationId = Number(id);
+    map.set(stationId, {
+      station_id: stationId,
+      station_name: name,
+      contacted: 0,
+      delivered: 0,
+      replied: 0,
+      bookings: 0,
+      due_soon_contacted: 0,
+      due_soon_bookings: 0,
+    });
+  }
+
+  for (const row of rows) {
+    const sid = Number(row.station_id);
+    if (!map.has(sid)) continue;
+    const station = map.get(sid);
+    station.contacted += 1;
+    if (row.delivered) station.delivered += 1;
+    if (row.replied) station.replied += 1;
+    if (row.campaignType === 'due_soon') station.due_soon_contacted += 1;
+  }
+
+  for (const booking of bookings) {
+    const sid = Number(booking.station_id);
+    if (!map.has(sid)) continue;
+    const station = map.get(sid);
+    station.bookings += 1;
+    if (booking.campaignType === 'due_soon') station.due_soon_bookings += 1;
+  }
+
+  return [...map.values()]
+    .map((station) => ({
+      ...station,
+      bookingRate: percent(station.bookings, station.contacted),
+      dueSoonBookingRate: percent(station.due_soon_bookings, station.due_soon_contacted),
+      replyRate: percent(station.replied, station.contacted),
+    }))
+    .sort((a, b) => b.contacted - a.contacted || a.station_name.localeCompare(b.station_name));
 }
 
 function buildStatusMap(statuses) {
@@ -216,6 +323,7 @@ function formatSession(session, statusByNumber) {
   return {
     number: session.number,
     customer_id: session.customer_id,
+    station_id: session.station_id ?? null,
     name: outbound.customer_name || outbound.contact_person || '',
     sentAt,
     sentMs,

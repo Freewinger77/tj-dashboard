@@ -3,7 +3,23 @@ import axios from 'axios';
 const api = axios.create({
   baseURL: '/api',
   headers: { 'Content-Type': 'application/json' },
+  withCredentials: true,
 });
+
+export async function fetchAuthMe() {
+  const { data } = await api.get('/auth/me');
+  return data;
+}
+
+export async function login(username, password) {
+  const { data } = await api.post('/auth/login', { username, password });
+  return data;
+}
+
+export async function logout() {
+  const { data } = await api.post('/auth/logout');
+  return data;
+}
 
 export async function fetchStats() {
   const { data } = await api.get('/stats');
@@ -15,8 +31,10 @@ export async function fetchLeadPoolSummary() {
   return data;
 }
 
-export async function fetchAnalytics() {
-  const { data } = await api.get('/analytics');
+export async function fetchAnalytics(period = 'all') {
+  const { data } = await api.get('/analytics', {
+    params: { period },
+  });
   return data;
 }
 

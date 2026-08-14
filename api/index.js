@@ -1,6 +1,8 @@
 import './lib/env.js';
 import express from 'express';
 import cors from 'cors';
+import { requireAuth } from './lib/auth.js';
+import authRouter from './routes/auth.js';
 import statsRouter from './routes/stats.js';
 import analyticsRouter from './routes/analytics.js';
 import customersRouter from './routes/customers.js';
@@ -11,7 +13,12 @@ import captureRouter from './routes/capture.js';
 import measurementRouter from './routes/measurement.js';
 
 const app = express();
-app.use(cors());
+app.use(
+  cors({
+    origin: true,
+    credentials: true,
+  })
+);
 // Limit is generous for base64 screenshots from the booking-capture flow. The
 // client downscales/compresses first, and Vercel still caps the platform body
 // at ~4.5MB, so this just avoids the default 100kb express rejection.
@@ -24,6 +31,10 @@ app.use((_req, res, next) => {
 
 const api = express.Router();
 api.get('/health', (_req, res) => res.json({ ok: true }));
+api.use('/auth', authRouter);
+
+// Everything below requires a signed session cookie.
+api.use(requireAuth);
 api.use('/stats', statsRouter);
 api.use('/analytics', analyticsRouter);
 api.use('/customers', customersRouter);

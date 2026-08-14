@@ -2,6 +2,7 @@ import { useState, useMemo, useCallback } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { CalendarRange, ImageUp, Loader2, Trash2, Upload, CheckCircle2 } from 'lucide-react';
 import { extractBookingCapture, commitBookingCapture } from '../lib/api.js';
+import { PageHeader } from '../components/layout/Shell.jsx';
 import { ToastContainer, useToast } from '../components/ui/Toast.jsx';
 
 const STATIONS = [
@@ -139,22 +140,23 @@ export default function BookingCapturePage() {
   const isCommitting = commitMutation.isPending;
 
   return (
-    <div className="space-y-6 sm:space-y-8">
+    <>
       <ToastContainer toasts={toasts} removeToast={removeToast} />
-
-      <div>
-        <h1 className="font-display text-[28px] sm:text-[34px] leading-none font-medium tracking-tight text-balance">
-          Capture bookings
-        </h1>
-        <p className="mt-1.5 sm:mt-2 text-[13px] sm:text-sm text-[color:var(--color-ink-3)]">
-          Upload calendar screenshots, review what the reader found, then save them to the booking snapshots that power attribution.
-        </p>
-      </div>
-
-      <section>
-        <h2 className="mb-3 text-[11px] uppercase tracking-[0.18em] text-[color:var(--color-ink-4)]">
-          1 · Upload
+      <PageHeader
+        title="Capture"
+        subtitle="Log a booking that came in outside the calendar sync."
+        mobileScope={false}
+      />
+      <div style={{ overflowY: 'auto', padding: '24px 28px 40px', flex: 1 }}>
+      <div style={{ maxWidth: 760, display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <section className="rs-panel" style={{ padding: 20 }}>
+        <h2 style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>
+          1 · Upload screenshots
         </h2>
+        <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+          Calendar screenshots — we extract plates into booking snapshots.
+        </p>
+        <div style={{ marginTop: 14 }}>
         <div className="card px-5 py-4 space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <label className="block">
@@ -220,14 +222,15 @@ export default function BookingCapturePage() {
             </div>
           )}
         </div>
+        </div>
       </section>
 
       {rows.length > 0 && (
-        <section>
-          <h2 className="mb-3 text-[11px] uppercase tracking-[0.18em] text-[color:var(--color-ink-4)]">
-            2 · Review &amp; correct
+        <section className="rs-panel" style={{ padding: 20 }}>
+          <h2 style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>
+            2 · Check what we read
           </h2>
-          <div className="card overflow-hidden">
+          <div className="mt-4 overflow-hidden rounded-lg border rule">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
@@ -298,7 +301,7 @@ export default function BookingCapturePage() {
               type="button"
               onClick={() => commitMutation.mutate()}
               disabled={isCommitting || validRegs === 0}
-              className="inline-flex items-center gap-2 rounded-lg bg-[color:var(--color-moss)] px-4 py-2 text-sm font-medium text-white transition-colors hover:opacity-90 disabled:opacity-50"
+              className="rs-btn-fill inline-flex items-center gap-2"
             >
               {isCommitting ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
               Save {validRegs} booking{validRegs === 1 ? '' : 's'}
@@ -306,6 +309,8 @@ export default function BookingCapturePage() {
           </div>
         </section>
       )}
-    </div>
+      </div>
+      </div>
+    </>
   );
 }

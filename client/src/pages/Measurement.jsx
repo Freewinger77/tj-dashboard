@@ -31,7 +31,7 @@ function fmtPct(rate, digits = 1) {
 
 export default function MeasurementPage() {
   const [tab, setTab] = useState('value');
-  const [ticket, setTicket] = useState(89);
+  const [ticket, setTicket] = useState(63);
   const [fee, setFee] = useState(12);
   const [volume, setVolume] = useState('');
 
@@ -48,6 +48,7 @@ export default function MeasurementPage() {
   const stale = Boolean(freshness?.stale);
 
   const liveUpliftPp = useMemo(() => {
+    if (headline?.lift_pp != null) return headline.lift_pp;
     if (!headline?.leads_contacted) return null;
     const treated = headline.treated_rate || 0;
     const control = headline.bookings_expected / headline.leads_contacted;
@@ -222,7 +223,9 @@ function ValueTab({
         <Kpi
           label="Return multiple"
           value={h.multiplier != null ? `${fmt(h.multiplier, 2)}×` : '—'}
-          hint={`${fmt(h.bookings_observed)} observed vs ${fmt(h.bookings_expected, 1)} expected`}
+          hint={`${fmt(h.bookings_observed)} observed vs ${fmt(h.bookings_expected, 1)} expected${
+            h.lift_pp != null ? ` · +${fmt(h.lift_pp, 1)}pp` : ''
+          }`}
         />
         <Kpi
           label="Lift vs TJ reminders"
