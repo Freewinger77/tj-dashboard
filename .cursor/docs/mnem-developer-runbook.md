@@ -31,6 +31,76 @@ Official CLI: [Uranid/mnem](https://github.com/Uranid/mnem). This runbook is the
 
 ---
 
+## How to ask someone to set it up
+
+Copy-paste this. A Cloud Agent / teammate **cannot** finish step 5–7 on your laptop for you.
+
+---
+
+We use mnem as shared Cursor memory.
+
+Git shares the code. mnem shares what we know about the code (decisions, quirks, bugs, architecture). It lives in `.mnem/` and is committed with the repo.
+
+Do this **once on your own laptop**. Restarting Cursor is not enough by itself.
+
+1. Install Rust if you don’t have a current stable (`rustc --version` — 1.83 is too old):
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+# new terminal, then:
+rustup update stable && rustup default stable
+```
+
+2. Install mnem (Cargo, not pip/npm — those 404 on Linux/macOS right now):
+
+```bash
+# Ubuntu/WSL only, if cargo link fails on libstdc++:
+# sudo apt-get install -y g++ libstdc++-dev
+
+cargo install --locked mnem-cli --features bundled-embedder
+```
+
+If `mnem: command not found`:
+
+```bash
+export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
+```
+
+3. Open **this repo** (after `git pull` so you have `.mnem/` and `.cursor/`).
+
+```bash
+cd /path/to/the-repo
+ls -d .mnem .cursor/mcp.json .cursor/rules/mnem.mdc
+# all three must exist. If .mnem is missing, stop — do not run mnem init.
+# Someone else already initialised it; you pull, you don’t init.
+```
+
+4. Check the binary, then wire **this clone** into Cursor. Use `"$(pwd)"` — not `.` and not a bare `mnem integrate cursor` (that points at a personal global graph, not the repo).
+
+```bash
+mnem --version
+mnem doctor
+mnem integrate cursor --target-repo "$(pwd)"
+mnem integrate --check
+# expect: ok Cursor  wired
+```
+
+5. Fully quit Cursor **as an application** (Cmd+Q / close the app, not just the tab). Reopen **this repo**.
+
+6. If Cursor prompts to enable the **mnem** MCP server, enable it.
+
+Then work normally. You should not have to say “check mnem” or “remember this”. When you finish a change, `git add` / commit / push as usual — include `.mnem/` if it changed.
+
+Do **not** put passwords, tokens, API keys, or `.env` values into mnem. Store the conclusion, not the chat.
+
+Stuck: `.cursor/docs/mnem-developer-runbook.md` (unusual cases in section K).
+
+---
+
+That is the whole ask. Everything below is the long manual (clone vs new repo, merge conflicts, Cloud Agents, traps).
+
+---
+
 ## Mental model
 
 | Thing | Meaning |
@@ -66,6 +136,8 @@ clone repo
 ---
 
 ## A. One-time setup on your laptop
+
+**Send teammates the block in “How to ask someone to set it up” above.** This section is the same work with extra failure notes.
 
 Do this once per developer.
 
