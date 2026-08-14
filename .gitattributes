@@ -1,0 +1,3 @@
+# mnem graph store is a binary redb file — never treat as text
+.mnem/*.redb binary
+.mnem/repo.redb binary

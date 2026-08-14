@@ -5,3 +5,7 @@ client/dist
 .DS_Store
 .vercel
 .env*
+
+# mnem: commit .mnem/ (graph + config). Ignore only local merge/lock junk.
+.mnem/*.lock
+.mnem/MERGE_CONFLICTS.json
