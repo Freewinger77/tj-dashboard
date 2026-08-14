@@ -124,28 +124,46 @@ mnem doctor
 
 ### 4. Connect mnem to Cursor (laptops only)
 
-This repo already commits `.cursor/mcp.json` so Cursor starts `mnem mcp` from the project root (it walks up to `.mnem/`). You still need the `mnem` binary on your PATH (step 2).
+This repo already commits `.cursor/mcp.json` (`command: mnem`, `args: ["mcp"]`) so Cursor can start the server from the workspace root. You still need the `mnem` binary on your PATH (step 2).
+
+**Tried 14 Aug 2026 (mnem 0.1.7):** `mnem integrate cursor` *does* run in a Cloud Agent VM. It is not a no-op. It writes files. Restarting Cursor / the cloud session still does **not** add `mnem_*` tools to a Cloud Agent’s MCP catalog — that catalog is separate. Laptop Cursor is the host that actually loads `~/.cursor/mcp.json`.
 
 Restarting Cursor does **nothing** until:
 
-1. `mnem` is installed on **this laptop** (the Cloud Agent install does not count)
+1. `mnem` is installed on **this laptop** (a Cloud Agent install does not count)
 2. This branch/PR is checked out so `.cursor/mcp.json` and `.mnem/` exist
-3. Cursor is fully quit and reopened
+3. Cursor is fully quit and reopened as an **application**
 4. You enable the **mnem** MCP server if Cursor shows a prompt
 
-Optional extra (user-level `~/.cursor/mcp.json`):
+Then, on the laptop, from the repo root:
 
 ```bash
 cd /path/to/this-repo
-mnem integrate cursor --target-repo .
+mnem integrate cursor --target-repo "$(pwd)"
 mnem integrate --check
+mnem doctor
 ```
 
-**Always pass `--target-repo .`.** Plain `mnem integrate cursor` points MCP at the **global** graph (`~/.mnemglobal/.mnem`), which does not travel with git.
+Use **`"$(pwd)"` (absolute)**, not `.`
+
+| Command | What MCP actually points at |
+|---|---|
+| `mnem integrate cursor` (no `--target-repo`) | `~/.mnemglobal/.mnem` — personal, **not** this repo |
+| `mnem integrate cursor --target-repo .` | literal `"."` in `mcp.json`. Breaks if the MCP process cwd is not the repo (`error: no mnem repository at ./.mnem`). Confirmed from `/tmp`. |
+| `mnem integrate cursor --target-repo "$(pwd)"` | absolute clone path. This is the one that works. |
+
+What that command writes (v0.1.7):
+
+- `~/.cursor/mcp.json` — `command` is the **absolute** mnem binary (e.g. `/usr/local/cargo/bin/mnem`), plus `--repo <path>`
+- `~/.cursor/rules/mnem.mdc` — user-level `alwaysApply` prompt (mnem-managed). This is **in addition to** the repo rule `.cursor/rules/mnem.mdc`
+- `~/.mnemglobal/integrations.toml` — bookkeeping
+- **No Cursor hooks.** `integrations.toml` components are `mcp` + `system_prompt` only. The generated rule says *“This host has no automatic pre-prompt hook.”*
+
+`mnem doctor` may print `fix: mnem integrate cursor --with-system-prompt`. **That flag does not exist.** System prompt is on by default; `--no-system-prompt` is the opt-out.
 
 Fully quit Cursor **as an application** (not just the terminal) and reopen it.
 
-**Cloud Agents / headless VMs:** `mnem doctor` will say `cursor host not installed`. That is expected. The committed rule + `.cursor/mcp.json` are the repo-side wiring; agents should fall back to the `mnem` CLI if MCP tools are missing.
+**Cloud Agents:** after integrate, `mnem integrate --check` shows `ok Cursor wired` and `mnem doctor` shows `ok cursor` + `ok system-prompt`. The running Cloud Agent still has **zero** `mnem_*` MCP tools. Use the CLI (`mnem retrieve` / `mnem add`) there. Do not treat “wired” as “this chat can call mnem_retrieve”.
 
 ---
 
@@ -474,17 +492,17 @@ Practical rules:
 
 ### K6. Cloud Agents, CI, and “Cursor isn’t installed”
 
+Tried in this Cloud Agent (mnem 0.1.7): `mnem integrate cursor --target-repo "$(pwd)"` **succeeds** and writes `~/.cursor/mcp.json` + `~/.cursor/rules/mnem.mdc`. `mnem doctor` then says `ok cursor`. That is **file wiring**, not tool access.
+
 | Environment | What works | What does not |
 |---|---|---|
-| Laptop Cursor | `mnem integrate cursor` → MCP + rule | — |
-| Cursor Cloud Agent / background agent | Committed `.cursor/rules/mnem.mdc` + CLI if `mnem` is on PATH | Desktop integrate; often **no** `mnem_*` MCP tools |
+| Laptop Cursor | User `mcp.json` + project `.cursor/mcp.json` after a full app restart | Relative `--repo .` if MCP cwd ≠ repo |
+| Cursor Cloud Agent | CLI (`mnem retrieve` / `mnem add` / `mnem ingest`) + committed `.cursor/rules/mnem.mdc` | `mnem_*` MCP tools. Restarting the agent does not load `~/.cursor/mcp.json` into the cloud tool catalog. |
 | CI | Retrieve-only if you install mnem; usually skip | Writing memory from flaky CI |
 
-If you are an agent in a cloud VM:
+`mnem doctor` *before* any `mcp.json` exists says `cursor host not installed`. After integrate it says `ok`. Neither message means Cloud Agents gained MCP tools.
 
-- Check `ls -a` for `.mnem/` and the rule.
-- If the CLI is missing, install it (Cargo, not pip stub) **or** still edit the rule/runbook and leave a note that ingest must be finished on a machine with mnem.
-- Do not fail the task solely because `mnem integrate --check` shows Cursor as unwired.
+If you are an agent in a cloud VM: use the CLI. Do not fail the task because MCP tools are missing.
 
 ### K7. What not to ingest (easy to get wrong)
 
@@ -528,8 +546,20 @@ Do ingest: ADRs, runbooks, measurement specs, “we rejected X because Y”, API
 - If `repo.redb` jumps by tens of MB, you ingested the wrong tree. Tombstone / revert the mnem op, don’t leave it.
 - Review `.mnem/` in PRs as “what did we learn?”, not as a line diff (there isn’t one). `mnem log --oneline` / `mnem diff` on the agent machine.
 
+### K12. `mnem integrate` traps (confirmed by running it)
+
+1. **Default target is the global graph.** Omit `--target-repo` and teammates never see your writes.
+2. **`--target-repo .` is stored as the string `.`** — not resolved to an absolute path. MCP started from another cwd cannot find `.mnem/`.
+3. **Hardcoded binary path** in `~/.cursor/mcp.json` (`/usr/local/cargo/bin/mnem` on this box). Another machine needs its own integrate, or the committed project `.cursor/mcp.json` which uses `command: "mnem"` on PATH.
+4. **Two always-on rules.** Integrate writes `~/.cursor/rules/mnem.mdc` (retrieve/commit every turn, including via MCP). The repo also has `.cursor/rules/mnem.mdc` (company: durable facts only, no secrets). Both can apply on a laptop. Prefer company constraints when they conflict (never commit secrets; store conclusions not chat).
+5. **`--with-system-prompt` is not a flag.** Ignore that doctor hint.
+6. **Unintegrate** leaves `"mcpServers": {}` in `~/.cursor/mcp.json`; it does not delete the file.
+7. **No Cursor hook** in 0.1.7. If MCP tools are missing, the generated user rule’s “call mnem_retrieve every turn” will fail; fall back to `mnem retrieve`.
+
 ---
 
 ## L. This-repo bootstrap (tj-dashboard)
 
-When this playbook was first applied, the repo had **neither** `.mnem/` **nor** `.cursor/rules/mnem.mdc`. Rust 1.83 was present; mnem was not. pip 0.1.7 404’d on the Linux tarball; Cargo needed a newer rustc plus `LIBRARY_PATH` for libstdc++. Cursor desktop was not installed (Cloud Agent). Those are all K-section cases — not hypothetical.
+When this playbook was first applied, the repo had **neither** `.mnem/` **nor** `.cursor/rules/mnem.mdc`. Rust 1.83 was present; mnem was not. pip 0.1.7 404’d on the Linux tarball; Cargo needed a newer rustc plus `LIBRARY_PATH` for libstdc++.
+
+`mnem integrate cursor --target-repo "$(pwd)"` was run in the Cloud Agent: it wired `~/.cursor/mcp.json` and `~/.cursor/rules/mnem.mdc`, and `mnem doctor` went green for Cursor. The Cloud Agent still had **no** `mnem_*` MCP tools after that. Those are all K-section cases — not hypothetical.
