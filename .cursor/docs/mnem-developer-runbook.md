@@ -124,7 +124,7 @@ mnem doctor
 
 ### 4. Connect mnem to Cursor (laptops only)
 
-This repo already commits `.cursor/mcp.json` (`command: mnem`, `args: ["mcp"]`) so Cursor can start the server from the workspace root. You still need the `mnem` binary on your PATH (step 2).
+This repo already commits `.cursor/mcp.json`, which starts `bash .cursor/bin/mnem-mcp`. That wrapper finds `mnem` on PATH (including `~/.cargo/bin` and `/usr/local/cargo/bin`) and points `--repo` at the git root. You still need the `mnem` binary installed on the machine that runs Cursor (step 2).
 
 **Tried 14 Aug 2026 (mnem 0.1.7):** `mnem integrate cursor` *does* run in a Cloud Agent VM. It is not a no-op. It writes files. Restarting Cursor / the cloud session still does **not** add `mnem_*` tools to a Cloud Agent’s MCP catalog — that catalog is separate. Laptop Cursor is the host that actually loads `~/.cursor/mcp.json`.
 

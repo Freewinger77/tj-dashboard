@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Start mnem MCP against THIS repo. Used by .cursor/mcp.json so Cursor does
+# not depend on a hardcoded machine path.
+set -euo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$HERE/../.." && pwd)"
+if git -C "$HERE" rev-parse --show-toplevel >/dev/null 2>&1; then
+  ROOT="$(git -C "$HERE" rev-parse --show-toplevel)"
+fi
+
+export PATH="/usr/local/cargo/bin:${HOME}/.cargo/bin:${HOME}/.local/bin:/usr/local/bin:${PATH}"
+
+if ! command -v mnem >/dev/null 2>&1; then
+  echo "mnem MCP: mnem is not installed. On this machine run:" >&2
+  echo "  cargo install --locked mnem-cli --features bundled-embedder" >&2
+  exit 1
+fi
+
+exec mnem mcp --repo "$ROOT"
