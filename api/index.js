@@ -10,8 +10,6 @@ import chatRouter from './routes/chat.js';
 import feederRouter from './routes/feeder.js';
 import messagesRouter from './routes/messages.js';
 import captureRouter from './routes/capture.js';
-import measurementRouter from './routes/measurement.js';
-
 const app = express();
 app.use(
   cors({
@@ -42,8 +40,6 @@ api.use('/chat', chatRouter);
 api.use('/feeder', feederRouter);
 api.use('/messages', messagesRouter);
 api.use('/capture', captureRouter);
-api.use('/measurement', measurementRouter);
-
 app.use('/api', api);
 app.use('/', api);
 

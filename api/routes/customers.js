@@ -11,33 +11,25 @@ function isBookedStopReason(reason) {
 router.get('/', async (req, res) => {
   const { search, status, station, campaign } = req.query;
 
-  let query = supabase
-    .from('tj_outbound_sessions')
-    .select('*')
-    .or('stop_reason.neq.business_customer,stop_reason.is.null')
-    .order('last_outbound_at', { ascending: false });
+  const buildSessionsQuery = () => {
+    let query = supabase
+      .from('tj_outbound_sessions')
+      .select('*')
+      .or('stop_reason.neq.business_customer,stop_reason.is.null')
+      .order('id', { ascending: true });
+    if (station) query = query.eq('station_id', Number(station));
+    if (campaign === 'passed' || campaign === 'due_soon') query = query.eq('campaign_type', campaign);
+    if (status === 'replied') query = query.not('last_inbound_at', 'is', null);
+    else if (status === 'booked') query = query.eq('stop_reminders', true).in('stop_reason', BOOKED_STOP_REASONS);
+    else if (status === 'stopped') query = query.eq('stop_reminders', true).not('stop_reason', 'in', `(${BOOKED_STOP_REASONS.join(',')})`);
+    return query;
+  };
 
-  if (station) {
-    query = query.eq('station_id', Number(station));
-  }
-
-  if (campaign === 'passed' || campaign === 'due_soon') {
-    query = query.eq('campaign_type', campaign);
-  }
-
-  if (status === 'replied') {
-    query = query.not('last_inbound_at', 'is', null);
-  } else if (status === 'booked') {
-    query = query.eq('stop_reminders', true).in('stop_reason', BOOKED_STOP_REASONS);
-  } else if (status === 'stopped') {
-    query = query.eq('stop_reminders', true).not('stop_reason', 'in', `(${BOOKED_STOP_REASONS.join(',')})`);
-  }
-
-  let sessionsResult;
+  let sessions;
   let statusRows;
   try {
-    [sessionsResult, statusRows] = await Promise.all([
-      query,
+    [sessions, statusRows] = await Promise.all([
+      fetchAll(buildSessionsQuery),
       // PostgREST caps each request at 1000 rows. tj_message_status is now >1000, so an
       // unpaginated select silently drops the newest messages and their statuses fall
       // back to 'sent' (this caused the "stuck on sent" regression). Page through every
@@ -54,17 +46,13 @@ router.get('/', async (req, res) => {
     return res.status(500).json({ error: err.message });
   }
 
-  if (sessionsResult.error) {
-    console.error('[customers]', sessionsResult.error);
-    return res.status(500).json({ error: sessionsResult.error.message });
-  }
-
   const statusByNumber = {};
   for (const m of statusRows) {
     statusByNumber[m.number] = m.status;
   }
 
-  let customers = sessionsResult.data.map((row) => formatCustomer(row, statusByNumber));
+  let customers = sessions.map((row) => formatCustomer(row, statusByNumber));
+  customers.sort((a, b) => Date.parse(b.last_outbound_at || 0) - Date.parse(a.last_outbound_at || 0));
 
   if (status && ['sent', 'read', 'delivered', 'failed'].includes(status)) {
     customers = customers.filter((c) => c.status === status);

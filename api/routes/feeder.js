@@ -1,30 +1,48 @@
 import { Router } from 'express';
-import { supabase } from '../lib/supabase.js';
+import { supabase, fetchAll } from '../lib/supabase.js';
 import axios from 'axios';
-import { assertNoHoldoutLeak } from '../lib/measurement.js';
 
 const router = Router();
 
-const STATIONS = [
-  { station_id: 58, station_name: 'Vaajakoski' },
-  { station_id: 59, station_name: 'Jämsä' },
-  { station_id: 60, station_name: 'Laukaa' },
-  { station_id: 61, station_name: 'Muurame' },
-];
+async function stationExists(stationId) {
+  const { data, error } = await supabase
+    .from('tj_station_pause')
+    .select('station_id, station_name')
+    .eq('station_id', stationId)
+    .maybeSingle();
+  if (error) throw error;
+  return data;
+}
 
 async function ensureStationPauseRows() {
-  const { error } = await supabase
+  const { data, error: readError } = await supabase
     .from('tj_station_pause')
-    .upsert(
-      STATIONS.map((station) => ({
-        ...station,
-        paused: false,
-        pause_outbound: true,
-        pause_reminders: true,
-      })),
-      { onConflict: 'station_id', ignoreDuplicates: true }
-    );
-
+    .select('station_id')
+    .limit(1);
+  if (readError) throw readError;
+  if (data?.length) return;
+  const seed = process.env.STATION_SEED_JSON;
+  if (!seed) return;
+  let stations;
+  try {
+    stations = JSON.parse(seed);
+  } catch {
+    throw new Error('STATION_SEED_JSON must be valid JSON');
+  }
+  if (!Array.isArray(stations) || !stations.every((station) =>
+    Number.isInteger(station.station_id) && typeof station.station_name === 'string' && station.station_name.trim()
+  )) throw new Error('STATION_SEED_JSON must contain station_id and station_name');
+  const { error } = await supabase.from('tj_station_pause').upsert(
+    stations.map((station) => ({
+      station_id: station.station_id,
+      station_name: station.station_name,
+      paused: true,
+      pause_outbound: true,
+      pause_reminders: true,
+      reason: 'New station — connect data and sender before resuming',
+    })),
+    { onConflict: 'station_id', ignoreDuplicates: true }
+  );
   if (error) throw error;
 }
 
@@ -36,8 +54,8 @@ router.post('/trigger', async (req, res) => {
     return res.status(500).json({ error: 'N8N_FEEDER_WEBHOOK not configured' });
   }
 
-  const count = Number(max_leads_to_send) || 50;
-  if (count < 1 || count > 500) {
+  const count = Number(max_leads_to_send);
+  if (max_leads_to_send == null || !Number.isInteger(count) || count < 1 || count > 500) {
     return res.status(400).json({ error: 'max_leads_to_send must be 1-500' });
   }
 
@@ -45,54 +63,47 @@ router.post('/trigger', async (req, res) => {
   const type = validTypes.includes(lead_type) ? lead_type : 'both';
 
   try {
-    // Sacred control arm: tell the worker to exclude holdouts, and verify
-    // no existing holdout phone already has a session (leak detector).
-    const { data: holdoutRows, error: holdoutErr } = await supabase
+    const { data: holdoutRows, error: holdoutError } = await supabase
       .from('tj_holdout_assignment')
       .select('lead_id');
-    const holdoutReady = !holdoutErr;
-    const holdoutCount = holdoutReady ? (holdoutRows || []).length : 0;
-
-    if (holdoutReady && holdoutCount > 0) {
-      const { data: holdoutLeads } = await supabase
-        .from('tj_csv_leads')
-        .select('normalized_phone')
-        .in(
-          'id',
-          holdoutRows.map((r) => r.lead_id)
-        );
-      const phones = (holdoutLeads || []).map((r) => r.normalized_phone).filter(Boolean);
-      const leak = await assertNoHoldoutLeak(phones);
-      if (!leak.ok) {
-        console.error('[feeder] HOLDOUT LEAK — refusing trigger', leak.blocked);
-        return res.status(409).json({
-          error: 'Holdout leak detected — sessions exist for held-out leads. Trigger blocked.',
-          blocked: leak.blocked,
-        });
+    if (holdoutError && !['42P01', 'PGRST205', 'PGRST116'].includes(holdoutError.code)) {
+      throw holdoutError;
+    }
+    if (!holdoutError && holdoutRows?.length) {
+      const holdoutPhones = new Set();
+      const ids = holdoutRows.map((row) => row.lead_id);
+      for (let i = 0; i < ids.length; i += 200) {
+        const { data: leads, error } = await supabase.from('tj_csv_leads')
+          .select('normalized_phone').in('id', ids.slice(i, i + 200));
+        if (error) throw error;
+        for (const lead of leads || []) {
+          if (lead.normalized_phone) holdoutPhones.add(String(lead.normalized_phone).replace(/\D/g, ''));
+        }
+      }
+      const sessions = await fetchAll(() => supabase.from('tj_outbound_sessions')
+        .select('number').order('id', { ascending: true }));
+      if (sessions.some((session) => holdoutPhones.has(String(session.number || '').replace(/\D/g, '')))) {
+        return res.status(409).json({ error: 'Holdout leads already have outbound sessions; check sender exclusions.' });
       }
     }
-
-    axios
-      .post(
-        webhookUrl,
-        {
-          max_leads_to_send: count,
-          lead_type: type,
-          exclude_holdout: true,
-          holdout_table_ready: holdoutReady,
-          holdout_count: holdoutCount,
-        },
-        { timeout: 300_000 }
-      )
-      .catch((err) => console.error('[feeder-bg]', err.message));
-
+    const { data } = await axios.post(
+      webhookUrl,
+      { max_leads_to_send: count, lead_type: type,
+        exclude_holdout: true,
+        holdout_table_ready: !holdoutError,
+        holdout_count: holdoutRows?.length || 0 },
+      { timeout: 55_000 }
+    );
+    if (data?.ok === false || data?.success === false) {
+      return res.status(502).json({ error: 'Sender rejected the batch', detail: data?.error || null });
+    }
     res.json({
       ok: true,
-      triggered: count,
+      accepted: true,
+      requested: count,
       lead_type: type,
+      worker_response: data?.status || null,
       triggered_at: new Date().toISOString(),
-      exclude_holdout: true,
-      holdout_count: holdoutCount,
     });
   } catch (err) {
     console.error('[feeder]', err.message);
@@ -215,6 +226,28 @@ router.put('/auto-send', async (req, res) => {
   res.json({ ok: true, [column]: enabled });
 });
 
+router.post('/stations', async (req, res) => {
+  const stationId = Number(req.body?.station_id);
+  const stationName = String(req.body?.station_name || '').trim();
+  if (!Number.isInteger(stationId) || stationId <= 0 || !stationName || stationName.length > 80) {
+    return res.status(400).json({ error: 'positive integer station_id and station_name (1-80 chars) required' });
+  }
+  const { data, error } = await supabase
+    .from('tj_station_pause')
+    .insert({
+      station_id: stationId,
+      station_name: stationName,
+      paused: true,
+      pause_outbound: true,
+      pause_reminders: true,
+      reason: 'New station — connect data and sender before resuming',
+    })
+    .select('station_id, station_name, paused, pause_outbound, pause_reminders')
+    .single();
+  if (error) return res.status(error.code === '23505' ? 409 : 500).json({ error: error.message });
+  res.status(201).json({ station: data });
+});
+
 router.get('/station-pause', async (_req, res) => {
   try {
     await ensureStationPauseRows();
@@ -237,14 +270,17 @@ router.put('/station-pause/:stationId', async (req, res) => {
   const stationId = Number(req.params.stationId);
   const { paused, reason } = req.body;
 
-  if (!STATIONS.some((station) => station.station_id === stationId)) {
-    return res.status(400).json({ error: 'unknown station id' });
-  }
-  if (typeof paused !== 'boolean') {
-    return res.status(400).json({ error: 'paused must be a boolean' });
+  if (!Number.isInteger(stationId) || typeof paused !== 'boolean') {
+    return res.status(400).json({ error: 'valid station id and boolean paused are required' });
   }
 
-  const station = STATIONS.find((item) => item.station_id === stationId);
+  let station;
+  try {
+    station = await stationExists(stationId);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+  if (!station) return res.status(400).json({ error: 'unknown station id' });
   const payload = {
     station_id: stationId,
     station_name: station.station_name,

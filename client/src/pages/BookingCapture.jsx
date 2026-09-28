@@ -1,16 +1,9 @@
 import { useState, useMemo, useCallback } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CalendarRange, ImageUp, Loader2, Trash2, Upload, CheckCircle2 } from 'lucide-react';
-import { extractBookingCapture, commitBookingCapture } from '../lib/api.js';
+import { extractBookingCapture, commitBookingCapture, getStationPause } from '../lib/api.js';
 import { PageHeader } from '../components/layout/Shell.jsx';
 import { ToastContainer, useToast } from '../components/ui/Toast.jsx';
-
-const STATIONS = [
-  { id: 58, name: 'Vaajakoski' },
-  { id: 59, name: 'Jämsä' },
-  { id: 60, name: 'Laukaa' },
-  { id: 61, name: 'Muurame' },
-];
 
 // Monday (YYYY-MM-DD) of the week containing `date`.
 function mondayOf(date) {
@@ -54,13 +47,16 @@ export default function BookingCapturePage() {
   const { toasts, addToast, removeToast } = useToast();
   const queryClient = useQueryClient();
 
-  const [stationId, setStationId] = useState(58);
+  const stationsQ = useQuery({ queryKey: ['station-pause'], queryFn: getStationPause });
+  const stations = stationsQ.data?.stations || [];
+  const [stationId, setStationId] = useState('');
+  const selectedStationId = stationId || String(stations[0]?.station_id || '');
   const [weekStart, setWeekStart] = useState(() => mondayOf(new Date()));
   const [files, setFiles] = useState([]);
   const [rows, setRows] = useState([]);
   const [progress, setProgress] = useState(null);
 
-  const stationName = STATIONS.find((s) => s.id === Number(stationId))?.name ?? '';
+  const stationName = stations.find((s) => String(s.station_id) === selectedStationId)?.station_name ?? '';
 
   const extractMutation = useMutation({
     mutationFn: async () => {
@@ -71,7 +67,7 @@ export default function BookingCapturePage() {
         setProgress(`Reading screenshot ${processed} of ${files.length}…`);
         const dataUrl = await compressImage(file);
         const result = await extractBookingCapture({
-          station_id: Number(stationId),
+          station_id: Number(selectedStationId),
           week_start: weekStart,
           image_base64: dataUrl,
         });
@@ -102,9 +98,9 @@ export default function BookingCapturePage() {
   const commitMutation = useMutation({
     mutationFn: () =>
       commitBookingCapture({
-        station_id: Number(stationId),
+        station_id: Number(selectedStationId),
         week_start: weekStart,
-        rows: rows.map((r) => ({
+        rows: rows.filter((r) => /^[A-ZÄÖ]{2,3}-\d{1,3}$/.test(r.reg)).map((r) => ({
           reg: r.reg,
           customer_name: r.customer_name || null,
           appointment_date: r.appointment_date || null,
@@ -162,13 +158,17 @@ export default function BookingCapturePage() {
             <label className="block">
               <span className="text-[11px] text-[color:var(--color-ink-4)]">Station</span>
               <select
-                value={stationId}
-                onChange={(e) => setStationId(Number(e.target.value))}
-                disabled={isExtracting}
+                value={selectedStationId}
+                onChange={(e) => {
+                  setStationId(e.target.value);
+                  setRows([]);
+                  setFiles([]);
+                }}
+                disabled={isExtracting || isCommitting || stationsQ.isLoading || stations.length === 0}
                 className="mt-1 w-full rounded-lg border rule bg-[color:var(--color-canvas)] px-3 py-2 text-sm text-[color:var(--color-ink)] focus:border-[color:var(--color-clay)] focus:outline-none disabled:opacity-50"
               >
-                {STATIONS.map((s) => (
-                  <option key={s.id} value={s.id}>{s.name}</option>
+                {stations.map((s) => (
+                  <option key={s.station_id} value={s.station_id}>{s.station_name}</option>
                 ))}
               </select>
             </label>
@@ -177,8 +177,12 @@ export default function BookingCapturePage() {
               <input
                 type="date"
                 value={weekStart}
-                onChange={(e) => setWeekStart(mondayOf(e.target.value))}
-                disabled={isExtracting}
+                onChange={(e) => {
+                  setWeekStart(mondayOf(e.target.value));
+                  setRows([]);
+                  setFiles([]);
+                }}
+                disabled={isExtracting || isCommitting}
                 className="mt-1 w-full rounded-lg border rule bg-[color:var(--color-canvas)] px-3 py-2 text-sm text-[color:var(--color-ink)] focus:border-[color:var(--color-clay)] focus:outline-none disabled:opacity-50"
               />
             </label>
@@ -207,7 +211,7 @@ export default function BookingCapturePage() {
             <button
               type="button"
               onClick={() => extractMutation.mutate()}
-              disabled={isExtracting || files.length === 0}
+              disabled={isExtracting || !selectedStationId || files.length === 0}
               className="inline-flex items-center gap-2 rounded-lg bg-[color:var(--color-clay)] px-4 py-2 text-sm font-medium text-white transition-colors hover:opacity-90 disabled:opacity-50"
             >
               {isExtracting ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
@@ -300,7 +304,7 @@ export default function BookingCapturePage() {
             <button
               type="button"
               onClick={() => commitMutation.mutate()}
-              disabled={isCommitting || validRegs === 0}
+              disabled={isCommitting || !selectedStationId || validRegs === 0}
               className="rs-btn-fill inline-flex items-center gap-2"
             >
               {isCommitting ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}

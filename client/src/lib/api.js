@@ -78,6 +78,14 @@ export async function setAutoSend(type, enabled) {
   return data;
 }
 
+export async function addStation(stationId, stationName) {
+  const { data } = await api.post('/feeder/stations', {
+    station_id: stationId,
+    station_name: stationName,
+  });
+  return data;
+}
+
 export async function getStationPause() {
   const { data } = await api.get('/feeder/station-pause');
   return data;
@@ -100,18 +108,6 @@ export async function extractBookingCapture(payload) {
 
 export async function commitBookingCapture(payload) {
   const { data } = await api.post('/capture/commit', payload);
-  return data;
-}
-
-export async function fetchMeasurement(refresh = false) {
-  const { data } = await api.get('/measurement', {
-    params: refresh ? { refresh: 1 } : undefined,
-  });
-  return data;
-}
-
-export async function fetchMeasurementRoi(payload) {
-  const { data } = await api.post('/measurement/roi', payload);
   return data;
 }
 

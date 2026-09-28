@@ -2,18 +2,15 @@ import { useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  expireOverdueReminders,
   fetchAnalytics,
   fetchCustomers,
   fetchLeadPoolSummary,
-  fetchMeasurement,
   fetchStats,
   getAutoSend,
   getStationPause,
   setAutoSend,
   setStationPause,
 } from '../lib/api.js';
-import { relativeTime } from '../lib/format.js';
 import { startOfHelsinkiWeek } from '../lib/helsinki.js';
 import { PageHeader } from '../components/layout/Shell.jsx';
 import HelpTip from '../components/ui/HelpTip.jsx';
@@ -78,11 +75,6 @@ export default function TodayPage() {
     queryFn: () => fetchAnalytics('all'),
     refetchInterval: 5 * 60_000,
   });
-  const measurementQ = useQuery({
-    queryKey: ['measurement'],
-    queryFn: () => fetchMeasurement(),
-    staleTime: 5 * 60_000,
-  });
   const autoSendQ = useQuery({
     queryKey: ['auto-send'],
     queryFn: getAutoSend,
@@ -92,11 +84,6 @@ export default function TodayPage() {
     queryKey: ['station-pause'],
     queryFn: getStationPause,
     refetchInterval: 30_000,
-  });
-  const customersQ = useQuery({
-    queryKey: ['customers', 'replied'],
-    queryFn: () => fetchCustomers({ status: 'replied' }),
-    refetchInterval: 60_000,
   });
   const failedQ = useQuery({
     queryKey: ['customers', 'failed'],
@@ -126,15 +113,6 @@ export default function TodayPage() {
     },
   });
 
-  const expireMutation = useMutation({
-    mutationFn: () => expireOverdueReminders(14),
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['measurement'] });
-      addToast(`Expired ${data?.expired ?? 0} overdue reminders`, 'success');
-    },
-    onError: (err) => addToast(err.response?.data?.error || err.message, 'error'),
-  });
-
   const stations = stationsQ.data?.stations || [];
   const sendingCount = stations.filter((s) => !s.paused).length;
   const pausedStations = stations.filter((s) => s.paused);
@@ -146,19 +124,7 @@ export default function TodayPage() {
     .filter(Boolean)
     .join(' · ') || 'None';
 
-  const needsReply = useMemo(() => {
-    const list = customersQ.data?.customers || [];
-    return [...list].sort((a, b) => {
-      const aT = a.last_inbound_at ? Date.parse(a.last_inbound_at) : 0;
-      const bT = b.last_inbound_at ? Date.parse(b.last_inbound_at) : 0;
-      return aT - bT;
-    });
-  }, [customersQ.data]);
-
   const failed = failedQ.data?.customers || [];
-  const overdue = measurementQ.data?.ops?.overdue_reminders || 0;
-  const headline = measurementQ.data?.headline;
-  const byType = measurementQ.data?.by_lead_type || {};
   const week = statsQ.data?.week || {};
   const total = statsQ.data?.total || {};
   const today = statsQ.data?.today || {};
@@ -172,9 +138,7 @@ export default function TodayPage() {
     }).length;
   }, [analyticsQ.data]);
 
-  const deliveredRate = pct(total.delivered, total.sent);
-  const weekDelivered =
-    week.sent && deliveredRate != null ? Math.round((week.sent * deliveredRate) / 100) : null;
+  const weekDelivered = analyticsQ.data?.summary?.weekDeliveredMessages ?? null;
 
   const weekBars = useMemo(() => {
     const bookings = analyticsQ.data?.bookingsAfterWhatsApp || [];
@@ -207,26 +171,6 @@ export default function TodayPage() {
   }, [leadPoolQ.data]);
 
   const tasks = [];
-  if (needsReply.length > 0) {
-    const oldest = needsReply[0];
-    tasks.push({
-      key: 'replies',
-      dot: 'var(--secondary-red)',
-      title: `${needsReply.length} ${needsReply.length === 1 ? 'reply' : 'replies'} waiting for a person`,
-      sub: oldest?.last_inbound_at
-        ? `Oldest has waited ${relativeTime(oldest.last_inbound_at).replace(/^about /, '').replace(' ago', '')}`
-        : 'Open Conversations to answer',
-      when: oldest?.last_inbound_at
-        ? new Intl.DateTimeFormat('en-GB', {
-            hour: '2-digit',
-            minute: '2-digit',
-            timeZone: 'Europe/Helsinki',
-          }).format(new Date(oldest.last_inbound_at))
-        : '',
-      action: 'Open',
-      onAction: () => navigate('/conversations?status=replied&sort=last_inbound_at'),
-    });
-  }
   for (const station of pausedStations) {
     tasks.push({
       key: `pause-${station.station_id}`,
@@ -236,17 +180,6 @@ export default function TodayPage() {
       when: '',
       action: 'Resume',
       onAction: () => resumeMutation.mutate({ stationId: station.station_id }),
-    });
-  }
-  if (overdue > 0) {
-    tasks.push({
-      key: 'overdue',
-      dot: 'var(--secondary-yellow)',
-      title: `${fmt(overdue)} reminders are overdue`,
-      sub: 'Expire them before the scheduler picks them up',
-      when: '',
-      action: 'Expire',
-      onAction: () => expireMutation.mutate(),
     });
   }
   if (failed.length > 0) {
@@ -275,7 +208,7 @@ export default function TodayPage() {
   const weeksAtPace =
     poolTotal != null && week.sent > 0 ? Math.max(1, Math.round(poolTotal / week.sent)) : null;
 
-  const updatedAt = analyticsQ.data?.generated_at || measurementQ.data?.generated_at;
+  const updatedAt = analyticsQ.data?.generated_at;
   const updatedLabel = updatedAt
     ? new Intl.DateTimeFormat('en-GB', {
         hour: '2-digit',
@@ -284,20 +217,20 @@ export default function TodayPage() {
       }).format(new Date(updatedAt))
     : null;
 
-  const title = `${greeting()}, Pyry`;
+  const title = greeting();
   const subtitle = `${helsinkiDateLabel()}${updatedLabel ? ` · updated ${updatedLabel}` : ''}`;
 
   const weekLoading = statsQ.isLoading || analyticsQ.isLoading;
-  const valueLoading = measurementQ.isLoading || analyticsQ.isLoading;
+  const valueLoading = analyticsQ.isLoading;
   const poolLoading = leadPoolQ.isLoading || leadPool?.status === 'running';
 
-  const attributedTotal =
-    analyticsQ.data?.summary?.bookingsAfterWhatsApp ?? headline?.bookings_observed ?? null;
+  const attributedTotal = analyticsQ.data?.summary?.bookingsAfterWhatsApp ?? null;
   const attributedByCampaign = analyticsQ.data?.summary?.bookingsAfterWhatsAppByCampaign || {};
-  const attributedDue = attributedByCampaign.due_soon ?? byType.due_soon?.bookings_observed ?? 0;
-  const attributedPassed = attributedByCampaign.passed ?? byType.passed?.bookings_observed ?? 0;
+  const attributedDue = attributedByCampaign.due_soon ?? 0;
+  const attributedPassed = attributedByCampaign.passed ?? 0;
   const attributedBarMax = Math.max(attributedDue, attributedPassed, 1);
-  const incremental = headline?.bookings_incremental;
+  const deliveredMessages = analyticsQ.data?.summary?.deliveredMessages;
+  const overallBookingRate = analyticsQ.data?.summary?.trackedBookingRate ?? null;
 
   return (
     <>
@@ -490,23 +423,17 @@ export default function TodayPage() {
                     <WeekKpi
                       label="Delivered"
                       value={fmt(weekDelivered)}
-                      hint={deliveredRate != null ? `${deliveredRate}% of sent` : '—'}
+                      hint="delivered messages this week"
                     />
                     <WeekKpi
                       label="Replied"
                       value={fmt(week.replied)}
-                      hint={
-                        weekDelivered
-                          ? `${pct(week.replied, weekDelivered)}% of delivered`
-                          : week.sent
-                            ? `${pct(week.replied, week.sent)}% of sent`
-                            : '—'
-                      }
+                      hint={week.sent ? `${pct(week.replied, week.sent)}% of sent` : '—'}
                     />
                     <WeekKpi
                       label="Booked"
                       value={fmt(weekBooked)}
-                      hint={week.sent ? `${pct(weekBooked, week.sent)}% of sent` : '—'}
+                      hint="captured this week"
                       green
                     />
                   </div>
@@ -563,7 +490,7 @@ export default function TodayPage() {
               <div style={{ fontSize: 14, fontWeight: 600 }}>Value of the programme</div>
               <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 3 }}>
                 All time ·{' '}
-                {valueLoading ? '…' : `${fmt(headline?.leads_contacted)} customers contacted`}
+                {valueLoading ? '…' : `${fmt(total.sent)} outreach conversations`}
               </div>
               {valueLoading ? (
                 <PanelSkeleton rows={3} />
@@ -588,10 +515,9 @@ export default function TodayPage() {
                         gap: 6,
                       }}
                     >
-                      Attributed bookings
-                      <HelpTip label="About attributed bookings" side="bottom">
-                        Registration-matched bookings after WhatsApp outreach. The overall attributed
-                        count — all time.
+                      Tracked bookings
+                      <HelpTip label="About tracked bookings" side="bottom">
+                        Registration-matched bookings from WhatsApp outreach, counted across all time.
                       </HelpTip>
                     </div>
                     <div
@@ -614,14 +540,11 @@ export default function TodayPage() {
                         lineHeight: 1.45,
                       }}
                     >
-                      Registration-matched after outreach. Standardised incremental (due_soon,
-                      observable window) is{' '}
-                      <b style={{ color: '#000' }}>{fmt(incremental, 0)}</b>
-                      {headline?.multiplier != null
-                        ? ` · ${Number(headline.multiplier).toFixed(2)}× control`
-                        : ''}
-                      {headline?.lift_pp != null ? ` · +${Number(headline.lift_pp).toFixed(1)}pp` : ''}
-                      .
+                      Overall tracked booking rate:{' '}
+                      <b style={{ color: '#000' }}>
+                        {overallBookingRate != null ? `${overallBookingRate}%` : '—'}
+                      </b>
+                      {' · '}{fmt(attributedTotal)} bookings ÷ {fmt(deliveredMessages)} delivered messages.
                     </div>
                   </div>
                   <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -992,7 +915,7 @@ export default function TodayPage() {
                 </div>
               </div>
               <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-muted)' }}>
-                {week.sent ? `${pct(weekBooked, week.sent)}% of sent booked` : '—'} ·{' '}
+                Bookings detected this week ·{' '}
                 {week.sent ? `${pct(week.replied, week.sent)}% replied` : '—'}
               </div>
             </>
@@ -1015,8 +938,8 @@ export default function TodayPage() {
                   gap: 6,
                 }}
               >
-                Attributed bookings
-                <HelpTip label="About attributed bookings" side="bottom">
+                Tracked bookings
+                <HelpTip label="About tracked bookings" side="bottom">
                   Registration-matched bookings after WhatsApp outreach. Overall count — all time.
                 </HelpTip>
               </div>
@@ -1033,12 +956,8 @@ export default function TodayPage() {
                 {fmt(attributedTotal, 0)}
               </div>
               <div style={{ fontSize: 12, color: 'rgba(0,0,0,.55)', marginTop: 8, lineHeight: 1.45 }}>
-                Incremental {fmt(incremental, 0)}
-                {headline?.multiplier != null
-                  ? ` · ${Number(headline.multiplier).toFixed(2)}× control`
-                  : ''}
-                {headline?.lift_pp != null ? ` · +${Number(headline.lift_pp).toFixed(1)}pp` : ''}
-                , from {fmt(headline?.leads_contacted)} contacted.
+                Overall tracked booking rate: {overallBookingRate != null ? `${overallBookingRate}%` : '—'}
+                {' · '}{fmt(attributedTotal)} bookings ÷ {fmt(deliveredMessages)} delivered messages.
               </div>
               <Link
                 to="/performance?method=attributed"

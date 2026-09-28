@@ -3,7 +3,6 @@ import axios from 'axios';
 import { supabase, fetchAll } from '../lib/supabase.js';
 
 const router = Router();
-const DEFAULT_BRIDGE_URL = 'https://doris-bridge.yellowpond-051e3dca.eastus.azurecontainerapps.io';
 const BOOKED_STOP_REASONS = new Set(['booked', 'booked_from_snapshot']);
 
 router.get('/', async (_req, res) => {
@@ -151,7 +150,8 @@ router.get('/lead-pool', async (req, res) => {
 });
 
 async function bridgePost(path, body) {
-  const baseURL = process.env.DORIS_BRIDGE_URL || DEFAULT_BRIDGE_URL;
+  const baseURL = process.env.DORIS_BRIDGE_URL;
+  if (!baseURL) throw new Error('DORIS_BRIDGE_URL not configured');
   const apiKey = process.env.DORIS_BRIDGE_API_KEY || process.env.BRIDGE_API_KEY;
   const headers = apiKey ? { 'X-API-Key': apiKey } : {};
   const { data } = await axios.post(`${baseURL}${path}`, body, { headers, timeout: 300000 });

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Loader2 } from 'lucide-react';
 import {
+  addStation,
   getAutoSend,
   getFeederProgress,
   getStationPause,
@@ -61,6 +62,8 @@ function Toggle({ enabled, onToggle, disabled, size = 'desktop' }) {
 export default function ControlsPage() {
   const { toasts, addToast, removeToast } = useToast();
   const queryClient = useQueryClient();
+  const [newStationId, setNewStationId] = useState('');
+  const [newStationName, setNewStationName] = useState('');
 
   const autoSendQ = useQuery({
     queryKey: ['auto-send'],
@@ -84,6 +87,18 @@ export default function ControlsPage() {
     onSuccess: (_d, v) => {
       queryClient.invalidateQueries({ queryKey: ['station-pause'] });
       addToast(v.paused ? 'Station paused' : 'Station resumed', v.paused ? 'info' : 'success');
+    },
+    onError: (err) => addToast(err.response?.data?.error || err.message, 'error'),
+  });
+
+  const addStationMutation = useMutation({
+    mutationFn: () => addStation(Number(newStationId), newStationName.trim()),
+    onSuccess: () => {
+      setNewStationId('');
+      setNewStationName('');
+      queryClient.invalidateQueries({ queryKey: ['station-pause'] });
+      queryClient.invalidateQueries({ queryKey: ['analytics'] });
+      addToast('Station added as paused. Verify its data and sender before resuming it.', 'success');
     },
     onError: (err) => addToast(err.response?.data?.error || err.message, 'error'),
   });
@@ -346,6 +361,37 @@ export default function ControlsPage() {
           })}
         </div>
 
+        <form
+          className="rs-panel"
+          style={{ maxWidth: 920, padding: 20, marginBottom: 20 }}
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (Number.isInteger(Number(newStationId)) && Number(newStationId) > 0 && newStationName.trim()) {
+              addStationMutation.mutate();
+            }
+          }}
+        >
+          <div style={{ fontSize: 14, fontWeight: 600 }}>Add a station</div>
+          <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 3 }}>
+            New stations start paused. Connect the station ID in your data feed and sender before you resume it.
+          </p>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 14, alignItems: 'end' }}>
+            <label style={{ display: 'grid', gap: 4, fontSize: 12 }}>
+              Station ID
+              <input className="rs-btn" type="number" min="1" step="1" required value={newStationId}
+                onChange={(event) => setNewStationId(event.target.value)} style={{ width: 120 }} />
+            </label>
+            <label style={{ display: 'grid', gap: 4, fontSize: 12 }}>
+              Station name
+              <input className="rs-btn" type="text" maxLength="80" required value={newStationName}
+                onChange={(event) => setNewStationName(event.target.value)} placeholder="e.g. Central" />
+            </label>
+            <button className="rs-btn-fill" type="submit" disabled={addStationMutation.isPending}>
+              {addStationMutation.isPending ? 'Adding…' : 'Add station'}
+            </button>
+          </div>
+        </form>
+
         <div
           style={{
             display: 'grid',
@@ -403,7 +449,7 @@ function Row({ label, value }) {
 
 function SendBatchPanel({ addToast }) {
   const queryClient = useQueryClient();
-  const [count, setCount] = useState(50);
+  const [count, setCount] = useState('50');
   const [leadType, setLeadType] = useState('due_soon');
   const [showConfirm, setShowConfirm] = useState(false);
   const [scanning, setScanning] = useState(false);
@@ -438,8 +484,8 @@ function SendBatchPanel({ addToast }) {
             stopPolling();
             setScanning(false);
             setProgress(null);
-            setResult({ ok: true, msg: `Done — ${new_sessions} new ${label} leads sent` });
-            addToast(`${new_sessions} new ${label} leads sent`, 'success');
+            setResult({ ok: true, msg: `${new_sessions} new ${label} sessions recorded. Confirm delivery in Conversations.` });
+            addToast(`${new_sessions} new sessions recorded`, 'info');
             queryClient.invalidateQueries({ queryKey: ['stats'] });
             queryClient.invalidateQueries({ queryKey: ['customers'] });
             return;
@@ -451,8 +497,8 @@ function SendBatchPanel({ addToast }) {
             setResult({
               ok: true,
               msg: new_sessions
-                ? `${new_sessions} leads sent so far.`
-                : 'Scan complete — no new eligible leads found.',
+                ? `${new_sessions} sessions recorded so far; delivery may still be pending.`
+                : 'No new sessions recorded yet. Check the sender job before retrying.',
             });
           }
         } catch {
@@ -464,13 +510,19 @@ function SendBatchPanel({ addToast }) {
   );
 
   const handleTrigger = async () => {
+    if (!Number.isInteger(Number(count)) || Number(count) < 1 || Number(count) > 500) {
+      setShowConfirm(false);
+      addToast('Enter a batch size from 1 to 500.', 'error');
+      return;
+    }
     const label = leadType === 'due_soon' ? 'due soon' : 'passed';
     setShowConfirm(false);
     setResult(null);
     setScanning(true);
     setProgress('Scanning leads…');
     try {
-      const { triggered_at } = await triggerFeeder(count, leadType);
+      const { triggered_at } = await triggerFeeder(Number(count), leadType);
+      setProgress('Sender accepted the request; checking for new sessions…');
       startPolling(triggered_at, label);
     } catch (err) {
       setScanning(false);
@@ -511,7 +563,7 @@ function SendBatchPanel({ addToast }) {
           max={500}
           value={count}
           disabled={scanning}
-          onChange={(e) => setCount(Number(e.target.value))}
+          onChange={(e) => setCount(e.target.value)}
           style={{
             width: 88,
             padding: '9px 12px',
@@ -550,7 +602,7 @@ function SendBatchPanel({ addToast }) {
       <button
         type="button"
         className="rs-btn-fill"
-        disabled={scanning}
+        disabled={scanning || !Number.isInteger(Number(count)) || Number(count) < 1 || Number(count) > 500}
         onClick={() => setShowConfirm(true)}
         style={{ marginTop: 14, width: '100%', padding: '11px 0', textAlign: 'center' }}
       >
@@ -558,7 +610,7 @@ function SendBatchPanel({ addToast }) {
         Send to {count} customers
       </button>
       <div style={{ marginTop: 10, fontSize: 11, color: 'var(--text-muted)', textAlign: 'center' }}>
-        Holdout customers are excluded automatically. Paused stations send nothing.
+        Check campaign exclusions in the sender before launching a batch. Paused stations must not send.
       </div>
       {progress && (
         <div style={{ marginTop: 10, fontSize: 12, color: 'var(--brand-logo-blue)' }}>{progress}</div>

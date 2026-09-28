@@ -4,12 +4,13 @@ import axios from 'axios';
 
 const router = Router();
 
-const YCLOUD_API_KEY = process.env.YCLOUD_API_KEY || 'cceca7f729213f2d7dc84082acb63a21';
+const YCLOUD_API_KEY = process.env.YCLOUD_API_KEY;
 const YCLOUD_BASE = 'https://api.ycloud.com/v2';
 const BATCH_SIZE = 50;
 const MAX_AGE_DAYS = 7;
 
 router.post('/poll', async (_req, res) => {
+  if (!YCLOUD_API_KEY) return res.status(503).json({ error: 'YCLOUD_API_KEY not configured' });
   const cutoff = new Date(Date.now() - MAX_AGE_DAYS * 24 * 60 * 60 * 1000).toISOString();
 
   const { data: pending, error } = await supabase

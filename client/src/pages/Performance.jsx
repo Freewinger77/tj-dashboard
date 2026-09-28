@@ -3,7 +3,6 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
   fetchAnalytics,
-  fetchMeasurement,
   fetchStats,
   getStationPause,
   pollMessageStatuses,
@@ -24,15 +23,8 @@ const PERIODS = [
   { key: 'all', label: 'All time' },
 ];
 
-/** Ticket value used for incremental impact revenue. */
-const AVG_TICKET_EUR = 63;
-
-const METHOD_HELP = {
-  attributed:
-    'Registration-matched bookings after a WhatsApp outreach. Follows the Week / Month / All time control above.',
-  incremental:
-    'Extra bookings above control via deadline-bin direct standardisation on capture-observable due_soon leads (not a crude contacted÷not-contacted rate). Scaled to the selected period using the measured multiplier.',
-};
+const BOOKING_HELP =
+  'Registration-matched bookings after WhatsApp outreach. This is a tracked count, not a causal estimate. Week and Month filter by booking detection date.';
 
 function fmt(n, digits = 0) {
   if (n == null || Number.isNaN(n)) return '—';
@@ -64,20 +56,19 @@ export default function PerformancePage() {
   const period = PERIODS.some((p) => p.key === searchParams.get('period'))
     ? searchParams.get('period')
     : 'all';
-  // Default: Attributed. Incremental is opt-in and also follows the period control.
-  const method = searchParams.get('method') === 'incremental' ? 'incremental' : 'attributed';
-
   const setParam = (key, val) => {
     const next = new URLSearchParams(searchParams);
     next.set(key, val);
+    next.delete('method');
     setSearchParams(next, { replace: true });
   };
 
   // Ensure default period is visible in the URL so reloads stay on All time.
   useEffect(() => {
-    if (!searchParams.get('period')) {
+    if (!searchParams.get('period') || searchParams.has('method')) {
       const next = new URLSearchParams(searchParams);
-      next.set('period', 'all');
+      if (!next.get('period')) next.set('period', 'all');
+      next.delete('method');
       setSearchParams(next, { replace: true });
     }
   }, [searchParams, setSearchParams]);
@@ -89,11 +80,6 @@ export default function PerformancePage() {
     refetchInterval: 5 * 60_000,
     placeholderData: (prev) => prev,
   });
-  const measurementQ = useQuery({
-    queryKey: ['measurement'],
-    queryFn: () => fetchMeasurement(),
-    staleTime: 5 * 60_000,
-  });
   const stationsQ = useQuery({ queryKey: ['station-pause'], queryFn: getStationPause });
 
   useEffect(() => {
@@ -104,13 +90,11 @@ export default function PerformancePage() {
     Boolean(analyticsQ.data) && analyticsQ.data.period !== period;
   const loading =
     statsQ.isLoading ||
-    measurementQ.isLoading ||
     analyticsQ.isLoading ||
     (analyticsQ.isFetching && analyticsPeriodMismatch);
 
   const stats = statsQ.data || {};
   const analytics = analyticsQ.data || {};
-  const measurement = measurementQ.data;
   const summary = analytics.summary || {};
   const bookings = analytics.bookingsAfterWhatsApp || [];
   const sendWindows = analytics.sendTimePerformance || analytics.bestSendWindows || [];
@@ -131,18 +115,12 @@ export default function PerformancePage() {
 
   // Analytics payload is already period-filtered server-side.
   const attributedCount = summary.bookingsAfterWhatsApp ?? bookings.length;
-  const attributedAllTime =
-    period === 'all' ? attributedCount : measurement?.headline?.bookings_observed ?? attributedCount;
   const silentBookings =
     summary.bookingsAfterWhatsAppSilent ?? bookings.filter((b) => !b.customerReplied).length;
-  const multiplier = measurement?.headline?.multiplier;
-  const incrementalAllTime = measurement?.headline?.bookings_incremental;
-  // Scale incremental to the selected window: attributed × (1 − 1/multiplier).
-  const incremental =
-    period === 'all' || multiplier == null || !(multiplier > 0)
-      ? incrementalAllTime
-      : attributedCount * (1 - 1 / multiplier);
-  const hero = method === 'incremental' ? incremental : attributedCount;
+  const deliveredMessages = summary.deliveredMessages;
+  // For Week / Month the numerator follows the send cohort, not detection-dated hero bookings.
+  const rateBookings = period === 'all' ? attributedCount : summary.bookingsFromPeriodSends;
+  const trackedBookingRate = summary.trackedBookingRate ?? null;
 
   const lastBookingAt = useMemo(() => {
     let max = 0;
@@ -153,10 +131,7 @@ export default function PerformancePage() {
     return max || null;
   }, [bookings]);
 
-  const lastCaptureAt = measurement?.freshness?.last_capture_at
-    ? Date.parse(measurement.freshness.last_capture_at)
-    : null;
-  const bookingDataThrough = Math.max(lastBookingAt || 0, lastCaptureAt || 0) || null;
+  const bookingDataThrough = lastBookingAt;
 
   // Only warn when capture itself is older than a week — not on a fresh Monday rollover.
   const showStaleBanner = !isNaN(cutoff) && isCaptureStale(bookingDataThrough, 7);
@@ -188,34 +163,7 @@ export default function PerformancePage() {
     }));
   }, [bookings]);
 
-  // Cumulative additional revenue for Incremental view: weekly attributed × lift share × ticket.
-  const revenueSeries = useMemo(() => {
-    const liftShare =
-      multiplier != null && multiplier > 1 ? 1 - 1 / multiplier : 0;
-    const map = new Map();
-    for (const b of bookings) {
-      const ts = Date.parse(b.dorisBookingCreatedAt || b.appointmentAt || 0);
-      if (!Number.isFinite(ts)) continue;
-      const key = startOfHelsinkiWeek(new Date(ts)).toISOString().slice(0, 10);
-      map.set(key, (map.get(key) || 0) + 1);
-    }
-    const weeks = [...map.entries()].sort((a, b) => a[0].localeCompare(b[0])).slice(-13);
-    let cum = 0;
-    return weeks.map(([weekKey, attributed]) => {
-      const incrementalBookings = attributed * liftShare;
-      const revenue = incrementalBookings * AVG_TICKET_EUR;
-      cum += revenue;
-      return {
-        weekKey,
-        attributed,
-        incrementalBookings,
-        revenue,
-        cumulative: cum,
-      };
-    });
-  }, [bookings, multiplier]);
-
-  // Period-scoped station booking rates from analytics (not all-time measurement).
+  // Period-scoped station booking rates from analytics.
   const byStation = analytics.byStation || [];
   const heat = buildHeat(sendWindows);
   const bestWindow = useMemo(() => {
@@ -244,39 +192,24 @@ export default function PerformancePage() {
     </div>
   );
 
-  const isIncremental = method === 'incremental';
-
   const handleExportReport = async () => {
     if (exporting || loading) return;
     setExporting(true);
     try {
       const { exportPerformanceReport } = await import('../lib/exportPerformanceReport.js');
-      const dueSoon = measurement?.by_lead_type?.due_soon;
-      const passed = measurement?.by_lead_type?.passed;
       exportPerformanceReport({
         periodLabel: PERIODS.find((p) => p.key === period)?.label || period,
         periodWindow: periodWindowLabel(period),
-        method,
         attributedCount,
-        attributedAllTime,
-        incremental,
-        multiplier: measurement?.headline?.multiplier,
-        leadsContacted: measurement?.headline?.leads_contacted,
-        treatedRate: measurement?.headline?.treated_rate,
+        rateBookings,
+        deliveredMessages,
+        trackedBookingRate,
         sent,
         delivered,
         replied,
         silentBookings,
         byStation,
         bestWindow,
-        dueSoonRate:
-          dueSoon?.leads_contacted > 0
-            ? dueSoon.bookings_observed / dueSoon.leads_contacted
-            : null,
-        passedRate:
-          passed?.leads_contacted > 0
-            ? passed.bookings_observed / passed.leads_contacted
-            : null,
         bookingDataThrough,
         captureStale: showStaleBanner,
         generatedAt: new Date(),
@@ -397,36 +330,12 @@ export default function PerformancePage() {
                 {periodWindowLabel(period)} · Europe/Helsinki
               </div>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span className="hidden sm:inline" style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                Counting method
-              </span>
-              <div className="rs-seg">
-                <button
-                  type="button"
-                  aria-pressed={method === 'attributed'}
-                  onClick={() => setParam('method', 'attributed')}
-                >
-                  Attributed
-                  <HelpTip label="About attributed bookings" side="bottom">
-                    {METHOD_HELP.attributed}
-                  </HelpTip>
-                </button>
-                <button
-                  type="button"
-                  aria-pressed={method === 'incremental'}
-                  onClick={() => setParam('method', 'incremental')}
-                >
-                  Incremental
-                  <HelpTip label="About incremental bookings" side="bottom">
-                    {METHOD_HELP.incremental}
-                  </HelpTip>
-                </button>
-              </div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+              Tracked bookings · delivery-based rate
             </div>
           </div>
 
-          {!isIncremental && showStaleBanner && (
+          {showStaleBanner && (
             <div
               style={{
                 margin: '0 0 0',
@@ -496,12 +405,9 @@ export default function PerformancePage() {
                         gap: 6,
                       }}
                     >
-                      {isIncremental ? 'Incremental bookings' : 'Attributed bookings'}
-                      <HelpTip
-                        label={isIncremental ? 'About incremental bookings' : 'About attributed bookings'}
-                        side="bottom"
-                      >
-                        {isIncremental ? METHOD_HELP.incremental : METHOD_HELP.attributed}
+                      Tracked bookings
+                      <HelpTip label="About tracked bookings" side="bottom">
+                        {BOOKING_HELP}
                       </HelpTip>
                     </div>
                     <div
@@ -514,7 +420,7 @@ export default function PerformancePage() {
                         fontVariantNumeric: 'tabular-nums',
                       }}
                     >
-                      {fmt(hero, 0)}
+                      {fmt(attributedCount, 0)}
                     </div>
                     <div
                       style={{
@@ -524,63 +430,22 @@ export default function PerformancePage() {
                         lineHeight: 1.5,
                       }}
                     >
-                      {isIncremental ? (
-                        <>
-                          Lift above the control rate for{' '}
-                          {period === 'week'
-                            ? 'this week'
-                            : period === 'month'
-                              ? 'this month'
-                              : 'all time'}
-                          {multiplier != null ? ` · ${Number(multiplier).toFixed(2)}× control` : ''}
-                          . Attributed in this window:{' '}
-                          <b style={{ color: '#000' }}>{fmt(attributedCount)}</b>.
-                        </>
-                      ) : (
-                        <>
-                          Registration-matched bookings for{' '}
-                          {period === 'week'
-                            ? 'this week'
-                            : period === 'month'
-                              ? 'this month'
-                              : 'all time'}
-                          . Incremental lift for the same window:{' '}
-                          <b style={{ color: '#000' }}>{fmt(incremental, 0)}</b>.
-                        </>
-                      )}
+                      Registration-matched bookings detected{' '}
+                      {period === 'week'
+                        ? 'this week'
+                        : period === 'month'
+                          ? 'this month'
+                          : 'all time'}.
+                      {' '}Tracked booking rate:{' '}
+                      <b style={{ color: '#000' }}>
+                        {trackedBookingRate != null ? `${trackedBookingRate}%` : '—'}
+                      </b>
+                      {' '}({fmt(rateBookings)} bookings from messages sent in this period ÷{' '}
+                      {fmt(deliveredMessages)} delivered messages).
                     </div>
-                    {!measurement?.freshness?.holdout_table_ready && (
-                      <div
-                        style={{
-                          marginTop: 16,
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 8,
-                          padding: '8px 12px',
-                          background: 'var(--surface-sunken)',
-                          borderRadius: 'var(--radius-sm)',
-                        }}
-                      >
-                        <div
-                          style={{
-                            width: 6,
-                            height: 6,
-                            borderRadius: 'var(--radius-pill)',
-                            background: 'var(--secondary-yellow)',
-                          }}
-                        />
-                        <div style={{ fontSize: 11, color: 'rgba(0,0,0,.55)' }}>
-                          Control arm is observational
-                        </div>
-                      </div>
-                    )}
                   </div>
 
                   <div className="hidden lg:block" style={{ padding: '24px 24px 20px', minWidth: 0 }}>
-                    {isIncremental ? (
-                      <CumulativeRevenueChart series={revenueSeries} period={period} />
-                    ) : (
-                      <>
                         <div
                           style={{
                             display: 'flex',
@@ -671,8 +536,6 @@ export default function PerformancePage() {
                             ))}
                           </div>
                         )}
-                      </>
-                    )}
                   </div>
                 </div>
               </div>
@@ -790,15 +653,11 @@ export default function PerformancePage() {
               >
                 By station
                 <HelpTip label="About station rates" side="left">
-                  {isIncremental
-                    ? 'Estimated incremental bookings for this period at each site (attributed × (1 − 1/multiplier)), using the measured control multiplier.'
-                    : 'Booking rate for this period: attributed bookings ÷ contacted, shown as a percentage.'}
+                  Tracked bookings from messages sent in this period ÷ delivered message rows at each station.
                 </HelpTip>
               </div>
               <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
-                {isIncremental
-                  ? `${PERIODS.find((p) => p.key === period)?.label || 'Period'} · estimated incremental bookings`
-                  : `${PERIODS.find((p) => p.key === period)?.label || 'Period'} · booking rate (%)`}
+                {`${PERIODS.find((p) => p.key === period)?.label || 'Period'} · tracked booking rate (%)`}
               </div>
             </div>
             <div
@@ -816,26 +675,13 @@ export default function PerformancePage() {
             >
               <span>Station</span>
               <span style={{ textAlign: 'right' }}>Sent</span>
-              <span style={{ textAlign: 'right' }}>{isIncremental ? 'Lift' : 'Rate %'}</span>
+              <span style={{ textAlign: 'right' }}>Rate %</span>
             </div>
             {(Array.isArray(byStation) ? byStation : []).slice(0, 8).map((row) => {
               const name = row.station_name || row.station || '—';
               const contacted = row.contacted || row.leads_contacted || 0;
-              const rateValue =
-                contacted > 0 && row.bookingRate != null
-                  ? row.bookingRate
-                  : contacted > 0 && row.dueSoonBookingRate != null
-                    ? row.dueSoonBookingRate
-                    : null;
+              const rateValue = row.deliveredBookingRate;
               const rateLabel = rateValue != null ? `${Number(rateValue).toFixed(1)}%` : '—';
-              // Incremental tab: scale period attributed detections by the measured multiplier.
-              const stationAttributed = row.bookings ?? 0;
-              const stationLift =
-                contacted > 0 && multiplier != null && multiplier > 0
-                  ? stationAttributed * (1 - 1 / multiplier)
-                  : null;
-              const liftLabel =
-                stationLift != null ? fmt(stationLift, stationLift < 10 ? 1 : 0) : '—';
               const paused = pausedIds.has(String(row.station_id));
               return (
                 <div
@@ -865,7 +711,7 @@ export default function PerformancePage() {
                       fontVariantNumeric: 'tabular-nums',
                     }}
                   >
-                    {isIncremental ? liftLabel : rateLabel}
+                    {rateLabel}
                   </span>
                 </div>
               );
@@ -874,166 +720,6 @@ export default function PerformancePage() {
         </div>
       </div>
     </>
-  );
-}
-
-function formatEuro(n) {
-  if (n == null || Number.isNaN(n)) return '—';
-  return `€${Math.round(n).toLocaleString('en-US')}`;
-}
-
-function shortWeekLabel(weekKey) {
-  try {
-    return new Intl.DateTimeFormat('en-GB', {
-      day: 'numeric',
-      month: 'short',
-      timeZone: 'Europe/Helsinki',
-    }).format(new Date(`${weekKey}T12:00:00Z`));
-  } catch {
-    return weekKey;
-  }
-}
-
-/** Catmull-Rom → cubic Bézier smooth path through points. */
-function smoothLinePath(points) {
-  if (!points.length) return '';
-  if (points.length === 1) return `M ${points[0].x} ${points[0].y}`;
-  let d = `M ${points[0].x} ${points[0].y}`;
-  for (let i = 0; i < points.length - 1; i++) {
-    const p0 = points[i === 0 ? 0 : i - 1];
-    const p1 = points[i];
-    const p2 = points[i + 1];
-    const p3 = points[i + 2] || p2;
-    const cp1x = p1.x + (p2.x - p0.x) / 6;
-    const cp1y = p1.y + (p2.y - p0.y) / 6;
-    const cp2x = p2.x - (p3.x - p1.x) / 6;
-    const cp2y = p2.y - (p3.y - p1.y) / 6;
-    d += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${p2.x} ${p2.y}`;
-  }
-  return d;
-}
-
-function CumulativeRevenueChart({ series, period }) {
-  const total = series.length ? series[series.length - 1].cumulative : 0;
-  const w = 560;
-  const h = 190;
-  const padX = 8;
-  const padY = 16;
-  const maxY = Math.max(total, 1);
-
-  const points = series.map((row, i) => {
-    const x =
-      series.length === 1
-        ? w / 2
-        : padX + (i / (series.length - 1)) * (w - padX * 2);
-    const y = padY + (1 - row.cumulative / maxY) * (h - padY * 2);
-    return { x, y, ...row };
-  });
-  const line = smoothLinePath(points);
-  const area = line
-    ? `${line} L ${points[points.length - 1].x} ${h - 4} L ${points[0].x} ${h - 4} Z`
-    : '';
-
-  return (
-    <div>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'baseline',
-          justifyContent: 'space-between',
-          marginBottom: 12,
-          gap: 12,
-        }}
-      >
-        <div
-          style={{
-            fontSize: 11,
-            letterSpacing: '.14em',
-            textTransform: 'uppercase',
-            color: 'var(--text-muted)',
-          }}
-        >
-          Additional revenue · cumulative
-          {period !== 'all' ? ' · this period' : ''}
-        </div>
-        <div
-          style={{
-            fontSize: 18,
-            fontWeight: 600,
-            letterSpacing: '-.02em',
-            fontVariantNumeric: 'tabular-nums',
-          }}
-        >
-          {formatEuro(total)}
-        </div>
-      </div>
-      {series.length === 0 ? (
-        <div
-          style={{
-            height: h,
-            display: 'grid',
-            placeItems: 'center',
-            borderBottom: '1px solid var(--border-default)',
-            fontSize: 13,
-            color: 'var(--text-muted)',
-          }}
-        >
-          No incremental revenue in this period yet.
-        </div>
-      ) : (
-        <>
-          <svg
-            viewBox={`0 0 ${w} ${h}`}
-            width="100%"
-            height={h}
-            preserveAspectRatio="none"
-            role="img"
-            aria-label={`Cumulative additional revenue ${formatEuro(total)}`}
-            style={{ display: 'block', borderBottom: '1px solid var(--border-default)' }}
-          >
-            <defs>
-              <linearGradient id="revFill" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="var(--brand-logo-indigo)" stopOpacity="0.18" />
-                <stop offset="100%" stopColor="var(--brand-logo-indigo)" stopOpacity="0" />
-              </linearGradient>
-            </defs>
-            {area && <path d={area} fill="url(#revFill)" />}
-            <path
-              d={line}
-              fill="none"
-              stroke="var(--brand-logo-indigo)"
-              strokeWidth="2.25"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              vectorEffect="non-scaling-stroke"
-            />
-            {points.length > 0 && (
-              <circle
-                cx={points[points.length - 1].x}
-                cy={points[points.length - 1].y}
-                r="3.5"
-                fill="var(--brand-logo-indigo)"
-              />
-            )}
-          </svg>
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              marginTop: 8,
-              fontSize: 11,
-              color: 'var(--text-muted)',
-            }}
-          >
-            <span>{shortWeekLabel(series[0].weekKey)}</span>
-            <span style={{ color: 'rgba(0,0,0,.4)' }}>
-              €{AVG_TICKET_EUR}/booking · lift share
-            </span>
-            <span>{shortWeekLabel(series[series.length - 1].weekKey)}</span>
-          </div>
-        </>
-      )}
-    </div>
   );
 }
 

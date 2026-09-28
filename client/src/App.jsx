@@ -23,10 +23,7 @@ export default function App() {
           {/* Legacy redirects */}
           <Route path="/stats" element={<Navigate to="/performance" replace />} />
           <Route path="/analytics" element={<Navigate to="/performance" replace />} />
-          <Route
-            path="/measurement"
-            element={<Navigate to="/performance?method=incremental" replace />}
-          />
+          <Route path="/measurement" element={<Navigate to="/performance" replace />} />
           <Route path="/settings" element={<Navigate to="/controls" replace />} />
           <Route path="/customers" element={<Navigate to="/conversations" replace />} />
 

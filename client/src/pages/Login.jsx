@@ -79,7 +79,7 @@ export default function LoginPage({ onAuthed }) {
     <div className="tj-login-app">
       <aside className="tj-login-aside">
         <div className="tj-login-wordmark">
-          <b>TJ KATSASTUS</b>
+          <img src="/company-logo.png" alt="TJ-Katsastus" style={{ width: 220, maxWidth: '100%', height: 'auto' }} />
           <span>{t.deskName}</span>
         </div>
         <div className="tj-login-grow" />

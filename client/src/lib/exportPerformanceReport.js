@@ -1,452 +1,187 @@
 import { jsPDF } from 'jspdf';
 
-/** RapidScreen tokens (light) — match client/src/index.css */
-const C = {
+const COLORS = {
   ink: [0, 0, 0],
-  ink80: [0, 0, 0],
-  muted: [102, 102, 102], // ~40% black
+  muted: [102, 102, 102],
   border: [230, 230, 230],
-  sunken: [249, 249, 250],
-  indigo: [79, 80, 127],
-  blue: [76, 152, 253],
-  green: [40, 150, 70],
-  yellow: [255, 204, 0],
-  white: [255, 255, 255],
+  pale: [249, 249, 250],
 };
 
-function fmt(n, digits = 0) {
-  if (n == null || Number.isNaN(Number(n))) return '—';
-  return Number(n).toLocaleString('en-US', {
-    maximumFractionDigits: digits,
-    minimumFractionDigits: digits,
-  });
+function fmt(value) {
+  return value == null || Number.isNaN(Number(value))
+    ? '—'
+    : Number(value).toLocaleString('en-US');
 }
 
-function pct(part, whole) {
-  if (part == null || !whole) return '—';
-  return `${Math.round((part / whole) * 100)}%`;
-}
-
-function helsinkiStamp(date = new Date()) {
+function dateLabel(value) {
+  if (!value) return '—';
   return new Intl.DateTimeFormat('en-GB', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    timeZone: 'Europe/Helsinki',
-  }).format(date);
+    day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Europe/Helsinki',
+  }).format(new Date(value));
 }
 
-function shortDate(ts) {
-  if (!ts) return '—';
-  return new Intl.DateTimeFormat('en-GB', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-    timeZone: 'Europe/Helsinki',
-  }).format(new Date(ts));
-}
-
-/**
- * Build + download a Performance snapshot PDF in the RapidScreen visual language.
- * @param {object} snapshot — live numbers from the Performance page
- */
+/** Export only tracked bookings, delivery-based rates, and operational context. */
 export function exportPerformanceReport(snapshot) {
   const {
-    periodLabel,
-    periodWindow,
-    method,
-    attributedCount,
-    attributedAllTime,
-    incremental,
-    multiplier,
-    leadsContacted,
-    treatedRate,
-    sent,
-    delivered,
-    replied,
-    silentBookings,
-    byStation = [],
-    bestWindow,
-    dueSoonRate,
-    passedRate,
-    bookingDataThrough,
-    captureStale,
+    periodLabel, periodWindow, attributedCount, rateBookings, deliveredMessages,
+    trackedBookingRate, sent, delivered, replied, silentBookings,
+    byStation = [], bestWindow, bookingDataThrough, captureStale,
     generatedAt = new Date(),
   } = snapshot;
-
   const doc = new jsPDF({ unit: 'pt', format: 'a4' });
-  const pageW = doc.internal.pageSize.getWidth();
-  const pageH = doc.internal.pageSize.getHeight();
+  const width = doc.internal.pageSize.getWidth();
+  const height = doc.internal.pageSize.getHeight();
   const margin = 40;
-  const contentW = pageW - margin * 2;
+  const contentWidth = width - margin * 2;
   let y = margin;
 
-  const ensureSpace = (need) => {
-    if (y + need > pageH - 48) {
+  function nextPage(space) {
+    if (y + space > height - 58) {
       doc.addPage();
       y = margin;
-      drawFooter();
     }
-  };
+  }
 
-  const drawFooter = () => {
-    const page = doc.internal.getNumberOfPages();
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8);
-    doc.setTextColor(...C.muted);
-    doc.text('TJ WhatsApp outreach · Performance snapshot', margin, pageH - 24);
-    doc.text(`Page ${page}`, pageW - margin, pageH - 24, { align: 'right' });
-  };
-
-  const rule = (yy = y) => {
-    doc.setDrawColor(...C.border);
-    doc.setLineWidth(0.75);
-    doc.line(margin, yy, pageW - margin, yy);
-  };
-
-  const sectionTitle = (title, subtitle) => {
-    ensureSpace(40);
+  function heading(title, subtitle) {
+    nextPage(46);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(12);
-    doc.setTextColor(...C.ink);
+    doc.setTextColor(...COLORS.ink);
     doc.text(title, margin, y);
-    y += 14;
+    y += 16;
     if (subtitle) {
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(9);
-      doc.setTextColor(...C.muted);
-      doc.text(subtitle, margin, y);
-      y += 12;
+      doc.setTextColor(...COLORS.muted);
+      doc.text(doc.splitTextToSize(subtitle, contentWidth), margin, y);
+      y += 20;
     }
-    y += 4;
-  };
+  }
 
-  const pill = (text, x, yy) => {
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8);
-    const w = doc.getTextWidth(text) + 14;
-    doc.setFillColor(...C.sunken);
-    doc.setDrawColor(...C.border);
-    doc.roundedRect(x, yy - 9, w, 14, 3, 3, 'FD');
-    doc.setTextColor(...C.ink);
-    doc.text(text, x + 7, yy);
-    return w;
-  };
-
-  // ── Header ──────────────────────────────────────────────────────────
-  doc.setFillColor(...C.indigo);
-  doc.roundedRect(margin, y, 28, 28, 6, 6, 'F');
+  doc.setFillColor(250, 142, 32);
+  doc.roundedRect(margin, y, 32, 32, 6, 6, 'F');
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(11);
-  doc.setTextColor(...C.white);
-  doc.text('TJ', margin + 14, y + 18, { align: 'center' });
-
+  doc.setTextColor(0, 0, 0);
+  doc.text('TJ', margin + 16, y + 21, { align: 'center' });
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(18);
-  doc.setTextColor(...C.ink);
-  doc.text('Performance report', margin + 40, y + 12);
+  doc.setTextColor(...COLORS.ink);
+  doc.text('Performance report', margin + 44, y + 14);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
-  doc.setTextColor(...C.muted);
-  doc.text('WhatsApp outreach · Europe/Helsinki', margin + 40, y + 26);
-  y += 44;
+  doc.setTextColor(...COLORS.muted);
+  doc.text('TJ-Katsastus · WhatsApp outreach', margin + 44, y + 28);
+  y += 52;
+  doc.text(`${periodLabel || 'All time'} · ${periodWindow || ''}`, margin, y);
+  y += 18;
+  doc.setDrawColor(...COLORS.border);
+  doc.line(margin, y, width - margin, y);
+  y += 24;
 
-  // Meta chips
-  let chipX = margin;
-  chipX += pill(periodLabel || 'Period', chipX, y) + 8;
-  chipX += pill(method === 'incremental' ? 'Incremental' : 'Attributed', chipX, y) + 8;
-  pill(`Generated ${helsinkiStamp(generatedAt)}`, chipX, y);
-  y += 22;
+  heading('Bookings from outreach', 'Booking detections follow the selected period; the rate follows messages sent in that period.');
+  nextPage(104);
+  doc.setFillColor(...COLORS.pale);
+  doc.roundedRect(margin, y, contentWidth, 88, 8, 8, 'F');
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
-  doc.setTextColor(...C.muted);
-  doc.text(periodWindow || '', margin, y);
-  y += 16;
-  rule();
-  y += 20;
+  doc.setTextColor(...COLORS.muted);
+  doc.text('TRACKED BOOKINGS', margin + 16, y + 20);
+  doc.text('TRACKED BOOKING RATE', margin + contentWidth / 2, y + 20);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(28);
+  doc.setTextColor(...COLORS.ink);
+  doc.text(fmt(attributedCount), margin + 16, y + 53);
+  doc.text(trackedBookingRate == null ? '—' : `${trackedBookingRate}%`, margin + contentWidth / 2, y + 53);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8);
+  doc.setTextColor(...COLORS.muted);
+  doc.text(`${fmt(rateBookings)} bookings / ${fmt(deliveredMessages)} delivered messages`, margin + contentWidth / 2, y + 73);
+  y += 110;
 
-  // ── Hero cards ──────────────────────────────────────────────────────
-  sectionTitle('Bookings from outreach', 'Latest snapshot from the live dashboard');
-
-  const cardGap = 12;
-  const cardW = (contentW - cardGap) / 2;
-  const cardH = 108;
-  ensureSpace(cardH + 20);
-
-  const drawHeroCard = (x, title, value, blurb, accent) => {
-    doc.setFillColor(...C.white);
-    doc.setDrawColor(...C.border);
-    doc.setLineWidth(0.8);
-    doc.roundedRect(x, y, cardW, cardH, 8, 8, 'FD');
-    doc.setFillColor(...accent);
-    doc.rect(x, y, 4, cardH, 'F');
-
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8);
-    doc.setTextColor(...C.muted);
-    doc.text(title.toUpperCase(), x + 16, y + 22);
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(32);
-    doc.setTextColor(...C.ink);
-    doc.text(String(value), x + 16, y + 58);
-
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8.5);
-    doc.setTextColor(...C.muted);
-    const lines = doc.splitTextToSize(blurb, cardW - 28);
-    doc.text(lines.slice(0, 3), x + 16, y + 74);
-  };
-
-  const attributedBlurb = `Registration-matched for ${periodLabel?.toLowerCase() || 'period'}.${
-    attributedAllTime != null && periodLabel !== 'All time'
-      ? ` All-time attributed ${fmt(attributedAllTime)}.`
-      : ''
-  }`;
-
-  const incrementalBlurb = `Lift above control for ${periodLabel?.toLowerCase() || 'period'} · ${fmt(multiplier, 2)}× · from ${fmt(leadsContacted)} contacted (all-time base).`;
-
-  drawHeroCard(
-    margin,
-    'Overall bookings',
-    fmt(attributedCount),
-    attributedBlurb,
-    C.blue
-  );
-  drawHeroCard(
-    margin + cardW + cardGap,
-    'Incremental bookings',
-    fmt(incremental, 0),
-    incrementalBlurb,
-    C.indigo
-  );
-  y += cardH + 18;
-
-  // ── Funnel ──────────────────────────────────────────────────────────
-  sectionTitle('Outreach funnel', periodWindow || periodLabel);
-
-  const funnel = [
-    { label: 'Sent', value: fmt(sent), hint: '' },
-    {
-      label: 'Delivered',
-      value: fmt(delivered),
-      hint: delivered != null && sent ? pct(delivered, sent) + ' of sent' : '',
-    },
-    {
-      label: 'Replied',
-      value: fmt(replied),
-      hint: sent ? pct(replied, sent) + ' of sent' : '',
-    },
-    {
-      label: 'Booked w/o reply',
-      value: fmt(silentBookings),
-      hint: attributedCount ? pct(silentBookings, attributedCount) + ' of attributed' : '',
-    },
+  heading('Outreach funnel', 'Delivered is a conversation count; delivered messages in the rate are distinct message rows (read receipts included).');
+  const metrics = [
+    ['Sent conversations', fmt(sent)],
+    ['Delivered conversations', fmt(delivered)],
+    ['Replied', fmt(replied)],
+    ['Booked without replying', fmt(silentBookings)],
   ];
-
-  const cellW = contentW / 4;
-  ensureSpace(56);
-  doc.setFillColor(...C.sunken);
-  doc.roundedRect(margin, y, contentW, 52, 8, 8, 'F');
-  funnel.forEach((cell, i) => {
-    const x = margin + i * cellW;
-    if (i > 0) {
-      doc.setDrawColor(...C.border);
-      doc.setLineWidth(0.6);
-      doc.line(x, y + 10, x, y + 42);
-    }
+  nextPage(70);
+  const cellWidth = contentWidth / metrics.length;
+  metrics.forEach(([label, value], index) => {
+    const x = margin + index * cellWidth;
+    doc.setFillColor(...COLORS.pale);
+    doc.rect(x, y, cellWidth - 2, 60, 'F');
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8);
-    doc.setTextColor(...C.muted);
-    doc.text(cell.label, x + 12, y + 16);
+    doc.setTextColor(...COLORS.muted);
+    doc.text(doc.splitTextToSize(label, cellWidth - 16).slice(0, 2), x + 8, y + 14);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(16);
-    doc.setTextColor(...C.ink);
-    doc.text(cell.value, x + 12, y + 34);
-    if (cell.hint) {
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(7);
-      doc.setTextColor(...C.muted);
-      doc.text(cell.hint, x + 12, y + 45);
-    }
+    doc.setTextColor(...COLORS.ink);
+    doc.text(value, x + 8, y + 48);
   });
-  y += 68;
+  y += 82;
 
-  // ── Programme value ─────────────────────────────────────────────────
-  sectionTitle('Value of the programme', 'Standardised uplift · all-time capture cohort');
-  ensureSpace(70);
-  doc.setFillColor(...C.sunken);
-  doc.roundedRect(margin, y, contentW, 64, 8, 8, 'F');
-
-  const valueCols = [
-    { label: 'Incremental', value: fmt(incremental, 0) },
-    { label: 'Multiplier', value: multiplier != null ? `${fmt(multiplier, 2)}×` : '—' },
-    { label: 'Treated rate', value: treatedRate != null ? `${fmt(treatedRate * 100, 1)}%` : '—' },
-    { label: 'Contacted', value: fmt(leadsContacted) },
-    {
-      label: 'Due soon rate',
-      value: dueSoonRate != null ? `${fmt(dueSoonRate * 100, 1)}%` : '—',
-    },
-    {
-      label: 'Passed rate',
-      value: passedRate != null ? `${fmt(passedRate * 100, 1)}%` : '—',
-    },
-  ];
-  const vW = contentW / 3;
-  valueCols.forEach((col, i) => {
-    const colX = margin + (i % 3) * vW;
-    const colY = y + (i < 3 ? 0 : 32);
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7.5);
-    doc.setTextColor(...C.muted);
-    doc.text(col.label, colX + 14, colY + 16);
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(12);
-    doc.setTextColor(...C.ink);
-    doc.text(col.value, colX + 14, colY + 30);
-  });
-  y += 80;
-
-  // ── By station ──────────────────────────────────────────────────────
-  sectionTitle(
-    'By station',
-    method === 'incremental'
-      ? `${periodLabel || 'Period'} · estimated incremental bookings`
-      : `${periodLabel || 'Period'} · booking rate (%)`
-  );
-
-  const rows = (Array.isArray(byStation) ? byStation : []).slice(0, 12);
-  const headerH = 22;
-  const rowH = 22;
-  ensureSpace(headerH + rowH * Math.max(rows.length, 1) + 16);
-
-  doc.setFillColor(...C.sunken);
-  doc.rect(margin, y, contentW, headerH, 'F');
+  heading('By station', 'Bookings from period outreach / delivered messages; message-to-station matching requires an unambiguous phone.');
+  nextPage(30);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(8);
-  doc.setTextColor(...C.muted);
-  const cols = [
-    { key: 'station', label: 'STATION', x: margin + 12, align: 'left' },
-    { key: 'sent', label: 'SENT', x: margin + contentW * 0.55, align: 'right' },
-    {
-      key: 'metric',
-      label: method === 'incremental' ? 'LIFT' : 'RATE %',
-      x: margin + contentW - 12,
-      align: 'right',
-    },
-  ];
-  cols.forEach((c) => {
-    doc.text(c.label, c.x, y + 14, { align: c.align });
-  });
-  y += headerH;
-
-  if (!rows.length) {
+  doc.setFontSize(9);
+  doc.setTextColor(...COLORS.muted);
+  doc.text('STATION', margin + 8, y);
+  doc.text('SENT', margin + contentWidth * 0.62, y, { align: 'right' });
+  doc.text('RATE', width - margin - 8, y, { align: 'right' });
+  y += 12;
+  doc.setDrawColor(...COLORS.border);
+  doc.line(margin, y, width - margin, y);
+  y += 18;
+  if (!byStation.length) {
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9);
-    doc.setTextColor(...C.muted);
-    doc.text('No station rows in this snapshot.', margin + 12, y + 14);
-    y += 28;
-  } else {
-    rows.forEach((row, i) => {
-      ensureSpace(rowH + 4);
-      if (i % 2 === 1) {
-        doc.setFillColor(252, 252, 253);
-        doc.rect(margin, y, contentW, rowH, 'F');
-      }
-      doc.setDrawColor(...C.border);
-      doc.setLineWidth(0.4);
-      doc.line(margin, y + rowH, pageW - margin, y + rowH);
-
-      const name = row.station_name || row.station || '—';
-      const contacted = row.contacted || row.leads_contacted || 0;
-      const rateValue =
-        row.bookingRate != null
-          ? row.bookingRate
-          : row.dueSoonBookingRate != null
-            ? row.dueSoonBookingRate
-            : null;
-      const ratePct = rateValue != null ? `${Number(rateValue).toFixed(1)}%` : '—';
-      const stationAttributed = row.bookings ?? 0;
-      const stationLift =
-        multiplier != null && multiplier > 0
-          ? stationAttributed * (1 - 1 / multiplier)
-          : null;
-      const lift =
-        stationLift != null ? fmt(stationLift, stationLift < 10 ? 1 : 0) : '—';
-
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(10);
-      doc.setTextColor(...C.ink);
-      doc.text(name, margin + 12, y + 15);
-      doc.text(fmt(contacted), margin + contentW * 0.55, y + 15, { align: 'right' });
-      doc.setFont('helvetica', 'bold');
-      doc.text(method === 'incremental' ? lift : ratePct, margin + contentW - 12, y + 15, {
-        align: 'right',
-      });
-      y += rowH;
-    });
+    doc.text('No station activity in this period.', margin + 8, y);
+    y += 18;
   }
-  y += 16;
-
-  // ── Best window ─────────────────────────────────────────────────────
-  if (bestWindow) {
-    sectionTitle('When to send', 'Best reply-rate window from live send analytics');
-    ensureSpace(36);
-    doc.setFillColor(...C.white);
-    doc.setDrawColor(...C.border);
-    doc.roundedRect(margin, y, contentW, 32, 6, 6, 'FD');
-    const dayNames = {
-      Mon: 'Monday',
-      Tue: 'Tuesday',
-      Wed: 'Wednesday',
-      Thu: 'Thursday',
-      Fri: 'Friday',
-    };
-    const day = dayNames[bestWindow.day] || bestWindow.day;
-    const rate = Math.round((bestWindow.replyRate || 0) * 100);
+  for (const station of byStation) {
+    nextPage(29);
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(10);
-    doc.setTextColor(...C.ink);
-    doc.text(
-      `${day} ${String(bestWindow.hour).padStart(2, '0')}:00 · ${rate}% reply` +
-        (bestWindow.sent ? ` · n=${bestWindow.sent}` : ''),
-      margin + 14,
-      y + 20
-    );
-    y += 48;
+    doc.setTextColor(...COLORS.ink);
+    const name = String(station.station_name || station.station || '—');
+    doc.text(name.slice(0, 36), margin + 8, y);
+    doc.text(fmt(station.contacted), margin + contentWidth * 0.62, y, { align: 'right' });
+    doc.text(station.deliveredBookingRate == null ? '—' : `${Number(station.deliveredBookingRate).toFixed(1)}%`, width - margin - 8, y, { align: 'right' });
+    y += 18;
+    doc.setDrawColor(...COLORS.border);
+    doc.line(margin, y, width - margin, y);
+    y += 10;
   }
 
-  // ── Capture note ────────────────────────────────────────────────────
-  sectionTitle('Data freshness', 'Booking attribution depends on calendar capture');
-  ensureSpace(50);
-  const freshnessFill = captureStale ? [255, 248, 230] : C.sunken;
-  doc.setFillColor(...freshnessFill);
-  doc.setDrawColor(...C.border);
-  doc.roundedRect(margin, y, contentW, 44, 6, 6, 'FD');
-  if (captureStale) {
-    doc.setFillColor(...C.yellow);
-    doc.circle(margin + 16, y + 22, 4, 'F');
+  if (bestWindow) {
+    heading('When to send', 'The strongest reply-rate window from send history.');
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10);
+    doc.setTextColor(...COLORS.ink);
+    doc.text(`${bestWindow.day} ${String(bestWindow.hour).padStart(2, '0')}:00 · ${Math.round(bestWindow.replyRate * 100)}% reply rate`, margin, y);
+    y += 30;
   }
+
+  heading('Data freshness', 'Booking tracking relies on calendar capture and can miss bookings that have not yet appeared in a snapshot.');
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
-  doc.setTextColor(...C.ink);
-  const freshness = captureStale
-    ? `Capture is stale. Last booking data through ${shortDate(bookingDataThrough)}. Run Capture before treating period zeros as final.`
-    : `Booking data through ${shortDate(bookingDataThrough)}. Live send/reply stats update independently of capture.`;
-  doc.text(doc.splitTextToSize(freshness, contentW - 36), margin + 28, y + 18);
-  y += 60;
+  doc.setTextColor(...COLORS.ink);
+  doc.text(doc.splitTextToSize(
+    `${captureStale ? 'Capture is stale. ' : ''}Booking data through ${dateLabel(bookingDataThrough)}. Generated ${dateLabel(generatedAt)}.`,
+    contentWidth,
+  ), margin, y);
 
-  // Footer on every page
-  const total = doc.internal.getNumberOfPages();
-  for (let p = 1; p <= total; p++) {
-    doc.setPage(p);
-    drawFooter();
+  const totalPages = doc.internal.getNumberOfPages();
+  for (let page = 1; page <= totalPages; page += 1) {
+    doc.setPage(page);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(...COLORS.muted);
+    doc.text('TJ-Katsastus · Performance', margin, height - 24);
+    doc.text(`${page} / ${totalPages}`, width - margin, height - 24, { align: 'right' });
   }
-
-  const stamp = new Date(generatedAt);
-  const fileDate = `${stamp.getFullYear()}${String(stamp.getMonth() + 1).padStart(2, '0')}${String(stamp.getDate()).padStart(2, '0')}`;
-  const periodKey = (periodLabel || 'report').toLowerCase().replace(/\s+/g, '-');
-  doc.save(`tj-performance-${periodKey}-${fileDate}.pdf`);
+  const stamp = new Date(generatedAt).toISOString().slice(0, 10);
+  doc.save(`tj-performance-${periodLabel?.toLowerCase().replace(/\s+/g, '-') || 'all'}-${stamp}.pdf`);
 }

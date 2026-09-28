@@ -9,7 +9,7 @@
     "dev:web": "npm run dev --prefix client",
     "build": "cd client && npm install && npm run build",
     "start": "node server.js",
-    "test": "node --test api/lib/measurement.test.js"
+    "test": "node --test api/lib/*.test.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.58.0",

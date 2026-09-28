@@ -151,24 +151,11 @@ export default function Shell({ children }) {
             textDecoration: 'none',
           }}
         >
-          <div
-            style={{
-              width: 28,
-              height: 28,
-              borderRadius: 'var(--radius-pill)',
-              background: 'var(--surface-inverse)',
-              color: '#fff',
-              display: 'grid',
-              placeItems: 'center',
-              font: '700 9px/1 Inter,sans-serif',
-              flex: 'none',
-            }}
-          >
-            TJ
-          </div>
-          <div style={{ font: '500 13px/1.2 Inter,sans-serif', color: 'rgb(58,58,58)' }}>
-            TJ&nbsp;Katsastus
-          </div>
+          <img
+            src="/company-logo.png"
+            alt="TJ-Katsastus"
+            style={{ width: 158, maxWidth: '100%', height: 'auto', display: 'block' }}
+          />
         </NavLink>
 
         <nav style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>

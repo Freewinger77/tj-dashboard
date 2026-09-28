@@ -4,13 +4,16 @@ import { supabase } from '../lib/supabase.js';
 
 const router = Router();
 
-// TJ inspection stations (station_id -> name). Mirrors booking-snapshots-schema.sql.
-const STATIONS = {
-  58: 'Vaajakoski',
-  59: 'Jämsä',
-  60: 'Laukaa',
-  61: 'Muurame',
-};
+// Station registry lives in the same table as the dashboard's pause controls.
+async function stationName(stationId) {
+  const { data, error } = await supabase
+    .from('tj_station_pause')
+    .select('station_name')
+    .eq('station_id', stationId)
+    .maybeSingle();
+  if (error) throw error;
+  return data?.station_name || null;
+}
 
 const REG_RE = /^[A-ZÄÖ]{2,3}-\d{1,3}$/;
 const STORAGE_BUCKET = 'booking-captures';
@@ -71,7 +74,8 @@ router.post('/extract', async (req, res) => {
   const { station_id, week_start, image_base64 } = req.body || {};
 
   const stationId = Number(station_id);
-  if (!STATIONS[stationId]) {
+  const station = await stationName(stationId);
+  if (!station) {
     return res.status(400).json({ error: 'Unknown station_id' });
   }
   const weekStart = mondayOf(week_start);
@@ -94,7 +98,7 @@ router.post('/extract', async (req, res) => {
     const { data } = await axios.post(
       webhookUrl,
       {
-        station: STATIONS[stationId],
+        station: station,
         station_id: stationId,
         week_start: weekStart,
         image_base64,
@@ -128,7 +132,7 @@ router.post('/extract', async (req, res) => {
 
   res.json({
     station_id: stationId,
-    station_name: STATIONS[stationId],
+    station_name: station,
     week_start: weekStart,
     archived_path: archivedPath,
     count: rows.length,
@@ -143,7 +147,8 @@ router.post('/commit', async (req, res) => {
   const { station_id, week_start, source, rows } = req.body || {};
 
   const stationId = Number(station_id);
-  if (!STATIONS[stationId]) {
+  const station = await stationName(stationId);
+  if (!station) {
     return res.status(400).json({ error: 'Unknown station_id' });
   }
   const weekStart = mondayOf(week_start);
@@ -171,7 +176,7 @@ router.post('/commit', async (req, res) => {
       source_batch_id: batchSource,
       source: batchSource,
       station_id: stationId,
-      station_name: STATIONS[stationId],
+      station_name: station,
       reg,
       week,
       appointment_week_start: weekStart,

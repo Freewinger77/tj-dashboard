@@ -4,11 +4,11 @@ const COOKIE_NAME = 'tj_session';
 const MAX_AGE_SEC = 60 * 60 * 24 * 14; // 14 days
 
 function authSecret() {
-  return (
-    process.env.AUTH_SECRET ||
-    process.env.DASHBOARD_AUTH_SECRET ||
-    'tj-dev-auth-secret-change-me'
-  );
+  const secret = process.env.AUTH_SECRET || process.env.DASHBOARD_AUTH_SECRET;
+  if (!secret && (process.env.VERCEL || process.env.NODE_ENV === 'production')) {
+    throw new Error('AUTH_SECRET is required in production');
+  }
+  return secret || 'tj-dev-auth-secret-change-me';
 }
 
 function expectedUser() {

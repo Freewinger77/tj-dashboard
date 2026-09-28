@@ -1,20 +1,16 @@
 import { Router } from 'express';
 import { supabase, fetchAll } from '../lib/supabase.js';
 import { helsinkiMidnightUTC, periodCutoffMs, startOfHelsinkiMonth } from '../lib/helsinki.js';
+import { countDeliveredMessages, percent, trackedBookingRate } from '../lib/booking-rate.js';
 
 const router = Router();
 
-// Campaign restarted on the CSV-fallback path at 29 May 2026 09:31 Helsinki time.
-// Bookings messaged on/after this are "since restart"; earlier ones are prior waves.
-const CAMPAIGN_RESTART_AT = new Date('2026-05-29T09:31:00+03:00').getTime();
+// Optional cutover timestamp for an imported outreach programme; default to full history.
+const CAMPAIGN_RESTART_AT = process.env.CAMPAIGN_RESTART_AT
+  ? Date.parse(process.env.CAMPAIGN_RESTART_AT)
+  : 0;
 const CACHE_TTL_MS = 10 * 60 * 1000;
 const BOOKED_STOP_REASONS = new Set(['booked', 'booked_from_snapshot']);
-const STATION_NAMES = {
-  58: 'Vaajakoski',
-  59: 'Jämsä',
-  60: 'Laukaa',
-  61: 'Muurame',
-};
 
 /** @type {Map<string, { at: number, data: object }>} */
 const cacheByPeriod = new Map();
@@ -35,7 +31,7 @@ router.get('/', async (req, res) => {
 async function buildAnalytics(period = 'all') {
   // PostgREST hard-caps each request at 1000 rows, so paginate to get every
   // session/status (we have >1200 sessions) instead of silently truncating.
-  const [allSessions, allStatuses] = await Promise.all([
+  const [allSessions, allStatuses, stations] = await Promise.all([
     fetchAll(() =>
       supabase
         .from('tj_outbound_sessions')
@@ -47,14 +43,23 @@ async function buildAnalytics(period = 'all') {
     fetchAll(() =>
       supabase
         .from('tj_message_status')
-        .select('number, status, stage, sent_at')
+        .select('id, number, status, stage, sent_at')
         .order('id', { ascending: true })
     ),
+    supabase
+      .from('tj_station_pause')
+      .select('station_id, station_name')
+      .order('station_id', { ascending: true }),
   ]);
+  if (stations.error) throw stations.error;
+  const stationNames = Object.fromEntries(
+    (stations.data || []).map((station) => [station.station_id, station.station_name])
+  );
 
   const cutoff = periodCutoffMs(period);
   const sessions = allSessions
     .filter((session) => session.customer_id && session.customer_id !== 999999)
+    .filter((session) => session.stop_reason !== 'business_customer')
     .filter((session) => {
       if (!cutoff) return true;
       const ts = Date.parse(session.last_outbound_at);
@@ -63,6 +68,16 @@ async function buildAnalytics(period = 'all') {
     .sort((a, b) => new Date(a.last_outbound_at) - new Date(b.last_outbound_at));
   const statusByNumber = buildStatusMap(allStatuses);
   const rows = sessions.map((session) => formatSession(session, statusByNumber));
+  // A delivered message can advance to "read"; count it once using its row ID.
+  // Only statuses for eligible outreach customers belong in the booking-rate denominator.
+  const eligibleNumbers = new Set(
+    allSessions
+      .filter((session) => session.customer_id && session.customer_id !== 999999)
+      .filter((session) => session.stop_reason !== 'business_customer')
+      .map((session) => normalizePhone(session.number))
+      .filter(Boolean)
+  );
+  const deliveredMessages = countDeliveredMessages(allStatuses, eligibleNumbers, cutoff);
   const base = buildBaseStats(rows);
   const activeRows = rows.filter((row) => row.sentMs >= CAMPAIGN_RESTART_AT);
   const activeBase = buildBaseStats(activeRows);
@@ -70,8 +85,9 @@ async function buildAnalytics(period = 'all') {
   const snapshotsByReg = await loadSnapshotsByReg();
   // Bookings for the period: detection/created time in window (matches Performance hero).
   const allBookings = buildBookings(
-    allSessions.filter((session) => session.customer_id && session.customer_id !== 999999),
-    snapshotsByReg
+    allSessions.filter((session) => session.customer_id && session.customer_id !== 999999 && session.stop_reason !== 'business_customer'),
+    snapshotsByReg,
+    stationNames
   );
   // Attributed hero: booking detection / created time in the window.
   const bookings = allBookings.filter((booking) => {
@@ -87,7 +103,7 @@ async function buildAnalytics(period = 'all') {
     return Number.isFinite(ts) && ts >= cutoff;
   });
   const reminders = buildReminderSummary(sessions, allStatuses, snapshotsByReg);
-  const byStation = buildByStation(rows, bookingsFromPeriodSends);
+  const byStation = buildByStation(rows, bookingsFromPeriodSends, allStatuses, cutoff, stationNames);
 
   const repliedBookings = bookings.filter((booking) => booking.customerReplied).length;
   const matchedBookings = bookings.filter((booking) => booking.calendarMatched).length;
@@ -127,6 +143,9 @@ async function buildAnalytics(period = 'all') {
     doris: { ok: true, error: null, source: 'snapshots' },
     summary: {
       contacted: base.contacted,
+      weekDeliveredMessages: period === 'all'
+        ? countDeliveredMessages(allStatuses, eligibleNumbers, periodCutoffMs('week'))
+        : null,
       delivered: base.delivered,
       read: base.read,
       replied: base.replied,
@@ -139,17 +158,22 @@ async function buildAnalytics(period = 'all') {
       highConfidenceBookings: matchedBookings,
       reviewBookings: bookings.length - matchedBookings,
       totalAttributedBookings: bookings.length,
+      deliveredMessages,
+      // All-time uses the same displayed booking numerator as Today; scoped rates
+      // use bookings from outreach sent in the matching period.
+      trackedBookingRate: trackedBookingRate(
+        (cutoff ? bookingsFromPeriodSends : bookings).length,
+        deliveredMessages
+      ),
       priorMonthAttributed,
       currentSent: activeBase.contacted,
       currentDueSoonSent: activeDueSoonSent,
       currentDelivered: activeBase.delivered,
       currentReplied: activeBase.replied,
-      currentBookingConversionRate: percent(bookings.length, dueSoonSent),
       dueSoonSentReachouts: dueSoonSent,
       dueSoonDeliveredReachouts: dueSoonDelivered,
       dueSoonBookings,
       dueSoonConversions: dueSoonBookings,
-      dueSoonBookingConversionRate: percent(bookings.length, dueSoonSent),
       remindersSent: reminders.sent,
       pendingReminders: reminders.pending,
       reminderBacklog: reminders.pending,
@@ -159,7 +183,7 @@ async function buildAnalytics(period = 'all') {
       deliveredReplyRate: percent(base.replied, base.delivered),
       // Conversion of period outreach (send-aligned), not detection-dated attributed count.
       attributedBookingRate: percent(bookingsFromPeriodSends.length, base.contacted),
-      deliveredBookingRate: percent(bookingsFromPeriodSends.length, base.delivered),
+      deliveredBookingRate: trackedBookingRate(bookingsFromPeriodSends.length, deliveredMessages),
       bookingsFromPeriodSends: bookingsFromPeriodSends.length,
     },
     byStation,
@@ -194,7 +218,7 @@ async function loadSnapshotsByReg() {
   return byReg;
 }
 
-function buildBookings(sessions, snapshotsByReg) {
+function buildBookings(sessions, snapshotsByReg, stationNames) {
   const bookings = [];
   for (const session of sessions) {
     const raw = parseRaw(session.raw_data);
@@ -247,7 +271,7 @@ function buildBookings(sessions, snapshotsByReg) {
       station_id: matchedSnap?.station_id ?? session.station_id ?? null,
       station:
         matchedSnap?.station_name ||
-        STATION_NAMES[session.station_id] ||
+        stationNames[session.station_id] ||
         '',
       stopReason: session.stop_reason || 'active',
       campaignType: session.campaign_type || outbound.campaign_type || '',
@@ -257,20 +281,23 @@ function buildBookings(sessions, snapshotsByReg) {
   return bookings.sort((a, b) => new Date(b.appointmentAt || 0) - new Date(a.appointmentAt || 0));
 }
 
-function buildByStation(rows, bookings) {
+function buildByStation(rows, bookings, statuses, cutoff, stationNames) {
   const map = new Map();
-  for (const [id, name] of Object.entries(STATION_NAMES)) {
+  const numbersByStation = new Map();
+  for (const [id, name] of Object.entries(stationNames)) {
     const stationId = Number(id);
     map.set(stationId, {
       station_id: stationId,
       station_name: name,
       contacted: 0,
       delivered: 0,
+      deliveredMessages: 0,
       replied: 0,
       bookings: 0,
       due_soon_contacted: 0,
       due_soon_bookings: 0,
     });
+    numbersByStation.set(stationId, new Set());
   }
 
   for (const row of rows) {
@@ -281,6 +308,11 @@ function buildByStation(rows, bookings) {
     if (row.delivered) station.delivered += 1;
     if (row.replied) station.replied += 1;
     if (row.campaignType === 'due_soon') station.due_soon_contacted += 1;
+    numbersByStation.get(sid).add(normalizePhone(row.number));
+  }
+
+  for (const [sid, numbers] of numbersByStation) {
+    map.get(sid).deliveredMessages = countDeliveredMessages(statuses, numbers, cutoff);
   }
 
   for (const booking of bookings) {
@@ -294,7 +326,8 @@ function buildByStation(rows, bookings) {
   return [...map.values()]
     .map((station) => ({
       ...station,
-      bookingRate: percent(station.bookings, station.contacted),
+      bookingRate: trackedBookingRate(station.bookings, station.deliveredMessages),
+      deliveredBookingRate: trackedBookingRate(station.bookings, station.deliveredMessages),
       dueSoonBookingRate: percent(station.due_soon_bookings, station.due_soon_contacted),
       replyRate: percent(station.replied, station.contacted),
     }))
@@ -379,10 +412,10 @@ function buildSendTimePerformance(rows, bookings) {
       const replyLags = bucket.replyLags.slice().sort((a, b) => a - b);
       return {
         ...bucket,
-        totalAttributedBookings: bucket.botBooked + bucket.bookingsAfterWhatsApp,
+        totalAttributedBookings: bucket.bookingsAfterWhatsApp,
         replyRate: percent(bucket.replied, bucket.sent),
         deliveredReplyRate: percent(bucket.replied, bucket.delivered),
-        bookingRate: percent(bucket.botBooked + bucket.bookingsAfterWhatsApp, bucket.sent),
+        bookingRate: percent(bucket.bookingsAfterWhatsApp, bucket.sent),
         medianReplyMinutes: replyLags[Math.floor(replyLags.length / 2)] ?? null,
         replyLags: undefined,
       };
@@ -512,11 +545,6 @@ function normalizePhone(value) {
   let phone = String(value || '').replace(/[^0-9]/g, '');
   if (phone.startsWith('0')) phone = `358${phone.slice(1)}`;
   return phone;
-}
-
-function percent(numerator, denominator) {
-  if (!denominator) return 0;
-  return Math.round((numerator * 1000) / denominator) / 10;
 }
 
 function formatApptWeek(value) {

@@ -52,8 +52,8 @@
     --black-10: rgba(0, 0, 0, 0.1);
     --black-4: rgba(0, 0, 0, 0.04);
     --white-100: rgb(255, 255, 255);
-    --logo: rgb(76, 152, 253);
-    --logo-2: rgb(79, 80, 127);
+    --logo: rgb(250, 142, 32);
+    --logo-2: rgb(180, 84, 5);
     --secondary-blue: rgb(125, 187, 255);
     --secondary-green: rgb(113, 221, 140);
     --secondary-indigo: rgb(173, 173, 251);
@@ -420,7 +420,7 @@
   @media (min-width: 1024px) {
     .rs-shell {
       display: grid;
-      grid-template-columns: 212px minmax(0, 1fr);
+      grid-template-columns: 220px minmax(0, 1fr);
       height: 100vh;
       max-width: none;
       margin: 0;
@@ -484,8 +484,8 @@
   inset: 0;
   pointer-events: none;
   background:
-    radial-gradient(120% 80% at 8% 100%, rgba(79, 80, 127, 0.11), transparent 62%),
-    radial-gradient(70% 50% at 100% 0%, rgba(79, 80, 127, 0.06), transparent 70%);
+    radial-gradient(120% 80% at 8% 100%, rgba(250, 142, 32, 0.11), transparent 62%),
+    radial-gradient(70% 50% at 100% 0%, rgba(250, 142, 32, 0.06), transparent 70%);
 }
 .tj-login-aside > * { position: relative; z-index: 1; }
 .tj-login-wordmark { display: flex; flex-direction: column; gap: 2px; }
