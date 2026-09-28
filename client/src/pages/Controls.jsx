@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Loader2 } from 'lucide-react';
 import {
   addStation,
+  fetchAnalytics,
   getAutoSend,
   getFeederProgress,
   getStationPause,
@@ -75,6 +76,11 @@ export default function ControlsPage() {
     queryFn: getStationPause,
     refetchInterval: 30_000,
   });
+  const analyticsQ = useQuery({
+    queryKey: ['analytics'],
+    queryFn: () => fetchAnalytics('all'),
+    refetchInterval: 5 * 60_000,
+  });
 
   const autoMutation = useMutation({
     mutationFn: ({ type, enabled }) => setAutoSend(type, enabled),
@@ -107,6 +113,13 @@ export default function ControlsPage() {
   const passedOn = autoSendQ.data?.auto_send_passed ?? false;
   const outreachOn = dueSoonOn || passedOn;
   const stations = stationsQ.data?.stations || [];
+  const activity = analyticsQ.data?.recentSendActivity;
+  const lastSentLabel = activity?.last_sent_at
+    ? new Intl.DateTimeFormat('en-GB', {
+        day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+        timeZone: 'Europe/Helsinki',
+      }).format(new Date(activity.last_sent_at))
+    : 'No send timestamp available';
 
   const setMaster = (enabled) => {
     autoMutation.mutate({ type: 'due_soon', enabled });
@@ -403,14 +416,20 @@ export default function ControlsPage() {
           className="lg:!grid-cols-2"
         >
           <div className="rs-panel" style={{ padding: 20 }}>
-            <div style={{ fontSize: 14, fontWeight: 600 }}>Schedule</div>
+            <div style={{ fontSize: 14, fontWeight: 600 }}>Send activity</div>
             <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
-              Batches run automatically inside this window.
+              Read from recorded outbound sends, not a claimed sender configuration.
             </div>
             <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <Row label="Hours" value="08:00 – 18:00" />
-              <Row label="Interval" value="Every 2 hours" />
-              <Row label="Batch size" value="12 due soon · 4 passed" />
+              <Row label="Last observed send" value={lastSentLabel} />
+              <Row label="Sent in last 7 days" value={activity ? String(activity.sent) : '—'} />
+              <Row label="Earliest observed hour (Helsinki)" value={activity?.earliest_hour != null
+                ? `${String(activity.earliest_hour).padStart(2, '0')}:00`
+                : '—'} />
+              <Row label="Latest observed hour (Helsinki)" value={activity?.latest_hour != null
+                ? `${String(activity.latest_hour).padStart(2, '0')}:00`
+                : '—'} />
+              <Row label="Next scheduled send" value="Unavailable from connected sender" />
             </div>
             <div
               style={{
@@ -423,9 +442,10 @@ export default function ControlsPage() {
                 lineHeight: 1.5,
               }}
             >
-              Wednesday afternoon replies best.{' '}
+              Performance uses recorded send/reply history, not a verified scheduler configuration.
+              It cannot move the external n8n scheduler; no schedule read/write integration is connected.{' '}
               <Link to="/performance" style={{ color: 'var(--brand-logo-indigo)' }}>
-                See the evidence
+                View historical send windows
               </Link>
               .
             </div>
@@ -537,7 +557,7 @@ function SendBatchPanel({ addToast }) {
     <div className="rs-panel" style={{ padding: 20 }}>
       <div style={{ fontSize: 14, fontWeight: 600 }}>Send a batch now</div>
       <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
-        On top of the schedule, respecting station switches above.
+        Manual request to the connected sender. Verify its station and campaign safeguards before sending.
       </div>
       <div style={{ marginTop: 16, display: 'flex', gap: 10 }}>
         <div className="rs-seg" style={{ flex: 1 }}>

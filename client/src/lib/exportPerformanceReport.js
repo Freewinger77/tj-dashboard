@@ -24,7 +24,7 @@ function dateLabel(value) {
 export function exportPerformanceReport(snapshot) {
   const {
     periodLabel, periodWindow, attributedCount, rateBookings, deliveredMessages,
-    trackedBookingRate, sent, delivered, replied, silentBookings,
+    trackedBookingRate, sent, delivered, replied,
     byStation = [], bestWindow, bookingDataThrough, captureStale,
     generatedAt = new Date(),
   } = snapshot;
@@ -58,7 +58,7 @@ export function exportPerformanceReport(snapshot) {
     }
   }
 
-  doc.setFillColor(250, 142, 32);
+  doc.setFillColor(76, 152, 253);
   doc.roundedRect(margin, y, 32, 32, 6, 6, 'F');
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(11);
@@ -99,12 +99,12 @@ export function exportPerformanceReport(snapshot) {
   doc.text(`${fmt(rateBookings)} bookings / ${fmt(deliveredMessages)} delivered messages`, margin + contentWidth / 2, y + 73);
   y += 110;
 
-  heading('Outreach funnel', 'Delivered is a conversation count; delivered messages in the rate are distinct message rows (read receipts included).');
+  heading('Outreach funnel', 'Delivered contacts counts distinct people; delivered messages counts message rows, including reminders and read receipts.');
   const metrics = [
     ['Sent conversations', fmt(sent)],
     ['Delivered conversations', fmt(delivered)],
     ['Replied', fmt(replied)],
-    ['Booked without replying', fmt(silentBookings)],
+    ['Delivered messages', fmt(deliveredMessages)],
   ];
   nextPage(70);
   const cellWidth = contentWidth / metrics.length;
@@ -156,7 +156,7 @@ export function exportPerformanceReport(snapshot) {
   }
 
   if (bestWindow) {
-    heading('When to send', 'The strongest reply-rate window from send history.');
+    heading('Observed send window', 'Best weekday/hour with at least 10 sends; this is historical data and does not configure the sender.');
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(10);
     doc.setTextColor(...COLORS.ink);

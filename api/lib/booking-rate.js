@@ -23,3 +23,8 @@ export function percent(numerator, denominator) {
 export function trackedBookingRate(bookings, deliveredMessages) {
   return deliveredMessages > 0 ? percent(bookings, deliveredMessages) : null;
 }
+
+/** A contact is reactivated when a delivered outreach conversation led to a tracked booking. */
+export function reactivationRate(bookedContacts, deliveredContacts) {
+  return deliveredContacts > 0 ? percent(bookedContacts, deliveredContacts) : null;
+}

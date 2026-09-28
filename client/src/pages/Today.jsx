@@ -61,7 +61,7 @@ function weekWindowLabel() {
     weekday: 'short',
     day: 'numeric',
     month: 'short',
-  })} · every number below is on this window`;
+  })} · weekly outreach and booking counts`;
 }
 
 export default function TodayPage() {
@@ -224,13 +224,10 @@ export default function TodayPage() {
   const valueLoading = analyticsQ.isLoading;
   const poolLoading = leadPoolQ.isLoading || leadPool?.status === 'running';
 
-  const attributedTotal = analyticsQ.data?.summary?.bookingsAfterWhatsApp ?? null;
-  const attributedByCampaign = analyticsQ.data?.summary?.bookingsAfterWhatsAppByCampaign || {};
-  const attributedDue = attributedByCampaign.due_soon ?? 0;
-  const attributedPassed = attributedByCampaign.passed ?? 0;
-  const attributedBarMax = Math.max(attributedDue, attributedPassed, 1);
-  const deliveredMessages = analyticsQ.data?.summary?.deliveredMessages;
-  const overallBookingRate = analyticsQ.data?.summary?.trackedBookingRate ?? null;
+  const summary = analyticsQ.data?.summary;
+  const reactivationRate = summary?.reactivationRate ?? null;
+  const reactivatedContacts = summary?.bookedDeliveredContacts;
+  const deliveredContacts = summary?.deliveredContacts;
 
   return (
     <>
@@ -292,8 +289,13 @@ export default function TodayPage() {
               value={stations.length ? `${sendingCount} of ${stations.length} sending` : '—'}
             />
             <Meta
-              label="Next batch"
-              value={outreachOn ? '08:00–18:00 · every 2h' : 'Scheduler off'}
+              label="Last send observed"
+              value={analyticsQ.data?.recentSendActivity?.last_sent_at
+                ? new Intl.DateTimeFormat('en-GB', {
+                    day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+                    timeZone: 'Europe/Helsinki',
+                  }).format(new Date(analyticsQ.data.recentSendActivity.last_sent_at))
+                : 'No send timestamp available'}
             />
             <Meta label="Spend today" value={spendToday} />
           </div>
@@ -487,13 +489,17 @@ export default function TodayPage() {
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
             <div className="rs-panel" style={{ padding: 20 }}>
-              <div style={{ fontSize: 14, fontWeight: 600 }}>Value of the programme</div>
+              <div style={{ fontSize: 14, fontWeight: 600 }}>Reactivation</div>
               <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 3 }}>
                 All time ·{' '}
-                {valueLoading ? '…' : `${fmt(total.sent)} outreach conversations`}
+                {valueLoading ? '…' : `${fmt(deliveredContacts)} delivered contacts`}
               </div>
               {valueLoading ? (
                 <PanelSkeleton rows={3} />
+              ) : analyticsQ.isError ? (
+                <div style={{ marginTop: 18, fontSize: 13, color: 'var(--secondary-red)' }}>
+                  Reactivation data could not be loaded. Refresh the page to try again.
+                </div>
               ) : (
                 <>
                   <div
@@ -515,9 +521,10 @@ export default function TodayPage() {
                         gap: 6,
                       }}
                     >
-                      Tracked bookings
-                      <HelpTip label="About tracked bookings" side="bottom">
-                        Registration-matched bookings from WhatsApp outreach, counted across all time.
+                      Reactivation rate
+                      <HelpTip label="About reactivation rate" side="bottom">
+                        Distinct delivered contacts whose non-baseline booking was first observed after outreach
+                        ÷ distinct delivered contacts. This is observational, not proof of causation.
                       </HelpTip>
                     </div>
                     <div
@@ -530,7 +537,7 @@ export default function TodayPage() {
                         fontVariantNumeric: 'tabular-nums',
                       }}
                     >
-                      {fmt(attributedTotal, 0)}
+                      {reactivationRate != null ? `${reactivationRate.toFixed(1)}%` : '—'}
                     </div>
                     <div
                       style={{
@@ -540,77 +547,16 @@ export default function TodayPage() {
                         lineHeight: 1.45,
                       }}
                     >
-                      Overall tracked booking rate:{' '}
-                      <b style={{ color: '#000' }}>
-                        {overallBookingRate != null ? `${overallBookingRate}%` : '—'}
-                      </b>
-                      {' · '}{fmt(attributedTotal)} bookings ÷ {fmt(deliveredMessages)} delivered messages.
+                      {fmt(reactivatedContacts)} booked contacts ÷ {fmt(deliveredContacts)}
+                      {' '}delivered contacts · all time.
                     </div>
                   </div>
-                  <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
-                    <div
-                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
-                    >
-                      <div style={{ fontSize: 13, color: 'rgba(0,0,0,.55)' }}>Due soon</div>
-                      <div
-                        style={{
-                          fontSize: 13,
-                          fontWeight: 500,
-                          fontVariantNumeric: 'tabular-nums',
-                        }}
-                      >
-                        {fmt(attributedDue)}
-                      </div>
-                    </div>
-                    <div
-                      style={{
-                        height: 6,
-                        borderRadius: 'var(--radius-pill)',
-                        background: 'rgba(0,0,0,.06)',
-                        overflow: 'hidden',
-                      }}
-                    >
-                      <div
-                        style={{
-                          width: `${Math.min(100, (attributedDue / attributedBarMax) * 100)}%`,
-                          height: '100%',
-                          background: 'var(--brand-logo-indigo)',
-                        }}
-                      />
-                    </div>
-                    <div
-                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
-                    >
-                      <div style={{ fontSize: 13, color: 'rgba(0,0,0,.55)' }}>Passed</div>
-                      <div
-                        style={{
-                          fontSize: 13,
-                          fontWeight: 500,
-                          fontVariantNumeric: 'tabular-nums',
-                        }}
-                      >
-                        {fmt(attributedPassed)}
-                      </div>
-                    </div>
-                    <div
-                      style={{
-                        height: 6,
-                        borderRadius: 'var(--radius-pill)',
-                        background: 'rgba(0,0,0,.06)',
-                        overflow: 'hidden',
-                      }}
-                    >
-                      <div
-                        style={{
-                          width: `${Math.min(100, (attributedPassed / attributedBarMax) * 100)}%`,
-                          height: '100%',
-                          background: 'rgba(79,80,127,.5)',
-                        }}
-                      />
-                    </div>
+                  <div style={{ marginTop: 14, fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                    One contact counts once, even if they received several reminders.
+                    Delivery and booking detection can update at different times.
                   </div>
                   <Link
-                    to="/performance?method=attributed"
+                    to="/performance"
                     style={{
                       marginTop: 16,
                       display: 'inline-block',
@@ -925,6 +871,10 @@ export default function TodayPage() {
         <div className="rs-panel" style={{ padding: 16, marginBottom: 16 }}>
           {valueLoading ? (
             <PanelSkeleton rows={2} />
+          ) : analyticsQ.isError ? (
+            <div style={{ fontSize: 13, color: 'var(--secondary-red)' }}>
+              Reactivation data could not be loaded. Refresh the page to try again.
+            </div>
           ) : (
             <>
               <div
@@ -938,9 +888,10 @@ export default function TodayPage() {
                   gap: 6,
                 }}
               >
-                Tracked bookings
-                <HelpTip label="About tracked bookings" side="bottom">
-                  Registration-matched bookings after WhatsApp outreach. Overall count — all time.
+                Reactivation rate
+                <HelpTip label="About reactivation rate" side="bottom">
+                  Distinct delivered contacts with a non-baseline booking first observed after outreach
+                  ÷ distinct delivered contacts. Observational, not causal.
                 </HelpTip>
               </div>
               <div
@@ -953,14 +904,13 @@ export default function TodayPage() {
                   fontVariantNumeric: 'tabular-nums',
                 }}
               >
-                {fmt(attributedTotal, 0)}
+                {reactivationRate != null ? `${reactivationRate.toFixed(1)}%` : '—'}
               </div>
               <div style={{ fontSize: 12, color: 'rgba(0,0,0,.55)', marginTop: 8, lineHeight: 1.45 }}>
-                Overall tracked booking rate: {overallBookingRate != null ? `${overallBookingRate}%` : '—'}
-                {' · '}{fmt(attributedTotal)} bookings ÷ {fmt(deliveredMessages)} delivered messages.
+                {fmt(reactivatedContacts)} booked contacts ÷ {fmt(deliveredContacts)} delivered contacts · all time.
               </div>
               <Link
-                to="/performance?method=attributed"
+                to="/performance"
                 style={{
                   marginTop: 14,
                   display: 'inline-block',

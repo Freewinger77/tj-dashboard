@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { supabase, fetchAll } from '../lib/supabase.js';
 import { helsinkiMidnightUTC, periodCutoffMs, startOfHelsinkiMonth } from '../lib/helsinki.js';
-import { countDeliveredMessages, percent, trackedBookingRate } from '../lib/booking-rate.js';
+import { countDeliveredMessages, percent, reactivationRate, trackedBookingRate } from '../lib/booking-rate.js';
 
 const router = Router();
 
@@ -78,6 +78,14 @@ async function buildAnalytics(period = 'all') {
       .filter(Boolean)
   );
   const deliveredMessages = countDeliveredMessages(allStatuses, eligibleNumbers, cutoff);
+  const deliveredNumbers = new Set(allStatuses.filter((status) => {
+    if (!['delivered', 'read'].includes(String(status.status || '').toLowerCase())) return false;
+    const phone = normalizePhone(status.number);
+    if (!eligibleNumbers.has(phone)) return false;
+    if (!cutoff) return true;
+    const sentMs = Date.parse(status.sent_at || '');
+    return Number.isFinite(sentMs) && sentMs >= cutoff;
+  }).map((status) => normalizePhone(status.number)));
   const base = buildBaseStats(rows);
   const activeRows = rows.filter((row) => row.sentMs >= CAMPAIGN_RESTART_AT);
   const activeBase = buildBaseStats(activeRows);
@@ -102,6 +110,15 @@ async function buildAnalytics(period = 'all') {
     const ts = Date.parse(booking.whatsappSentAt || 0);
     return Number.isFinite(ts) && ts >= cutoff;
   });
+  const bookedDeliveredContacts = new Set(bookingsFromPeriodSends
+    .filter((booking) => {
+      if (booking.isBaseline) return false;
+      const sentMs = Date.parse(booking.whatsappSentAt || '');
+      const detectedMs = Date.parse(booking.bookingDetectedAt || '');
+      return Number.isFinite(sentMs) && Number.isFinite(detectedMs) && detectedMs >= sentMs;
+    })
+    .map((booking) => normalizePhone(booking.number))
+    .filter((phone) => deliveredNumbers.has(phone))).size;
   const reminders = buildReminderSummary(sessions, allStatuses, snapshotsByReg);
   const byStation = buildByStation(rows, bookingsFromPeriodSends, allStatuses, cutoff, stationNames);
 
@@ -114,6 +131,26 @@ async function buildAnalytics(period = 'all') {
   const dueSoonBookings = bookings.filter((booking) => booking.campaignType === 'due_soon').length;
   const activeDueSoonSent = activeRows.filter((row) => row.campaignType === 'due_soon').length;
   const sendTimePerformance = buildSendTimePerformance(rows, bookingsFromPeriodSends);
+  const recentSends = allSessions.filter((session) => {
+    const sentMs = Date.parse(session.last_outbound_at || '');
+    return session.customer_id && session.customer_id !== 999999 &&
+      Number.isFinite(sentMs) && sentMs >= Date.now() - 7 * 86400000;
+  });
+  const recentHours = [...new Set(recentSends.map((session) => Number(hourKey(session.last_outbound_at))))]
+    .filter(Number.isInteger)
+    .sort((a, b) => a - b);
+  const recentSendActivity = {
+    sent: recentSends.length,
+    earliest_hour: recentHours[0] ?? null,
+    latest_hour: recentHours.at(-1) ?? null,
+    last_sent_at: allSessions.reduce((last, session) => {
+      const sentMs = Date.parse(session.last_outbound_at || '');
+      return Number.isFinite(sentMs) && sentMs > (last ? Date.parse(last) : 0)
+        ? session.last_outbound_at
+        : last;
+    }, null),
+    period: 'last 7 days',
+  };
   const replyTiming = buildReplyTiming(rows);
 
   // Prior calendar month (Helsinki) — only useful when viewing "month".
@@ -141,12 +178,16 @@ async function buildAnalytics(period = 'all') {
     period,
     bookingSource: 'snapshots',
     doris: { ok: true, error: null, source: 'snapshots' },
+    recentSendActivity,
     summary: {
       contacted: base.contacted,
       weekDeliveredMessages: period === 'all'
         ? countDeliveredMessages(allStatuses, eligibleNumbers, periodCutoffMs('week'))
         : null,
-      delivered: base.delivered,
+      delivered: deliveredNumbers.size,
+      deliveredContacts: deliveredNumbers.size,
+      bookedDeliveredContacts,
+      reactivationRate: reactivationRate(bookedDeliveredContacts, deliveredNumbers.size),
       read: base.read,
       replied: base.replied,
       botBooked,
@@ -180,7 +221,7 @@ async function buildAnalytics(period = 'all') {
       nextReminderAt: reminders.nextReminderAt,
       remindersByStage: reminders.byStage,
       replyRate: percent(base.replied, base.contacted),
-      deliveredReplyRate: percent(base.replied, base.delivered),
+      deliveredReplyRate: percent(base.replied, deliveredNumbers.size),
       // Conversion of period outreach (send-aligned), not detection-dated attributed count.
       attributedBookingRate: percent(bookingsFromPeriodSends.length, base.contacted),
       deliveredBookingRate: trackedBookingRate(bookingsFromPeriodSends.length, deliveredMessages),
@@ -190,7 +231,7 @@ async function buildAnalytics(period = 'all') {
     bookingsAfterWhatsApp: bookings,
     sendTimePerformance,
     bestSendWindows: sendTimePerformance
-      .filter((bucket) => bucket.sent >= 5)
+      .filter((bucket) => bucket.sent >= 10)
       .slice()
       .sort((a, b) => b.replyRate - a.replyRate || b.bookingsAfterWhatsApp - a.bookingsAfterWhatsApp)
       .slice(0, 8),

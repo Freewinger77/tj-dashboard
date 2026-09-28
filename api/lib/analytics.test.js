@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { countDeliveredMessages, trackedBookingRate } from './booking-rate.js';
+import { countDeliveredMessages, reactivationRate, trackedBookingRate } from './booking-rate.js';
 
 const eligible = new Set(['358401234567']);
 const messages = [
@@ -20,6 +20,11 @@ test('period denominator uses message sent date and stable row IDs', () => {
 });
 
 test('overall tracked booking percentage uses delivered message rows', () => {
-  assert.equal(trackedBookingRate(483, 1691), 28.6);
+  assert.equal(trackedBookingRate(483, 1688), 28.6);
   assert.equal(trackedBookingRate(0, 0), null);
+});
+
+test('reactivation counts distinct booked contacts over delivered contacts, not messages', () => {
+  assert.equal(reactivationRate(400, 1374), 29.1);
+  assert.equal(reactivationRate(0, 0), null);
 });

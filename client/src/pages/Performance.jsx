@@ -104,7 +104,7 @@ export default function PerformancePage() {
   // Prefer period-scoped analytics funnel; fall back to /stats calendar buckets.
   const sent = summary.contacted ?? (period === 'week' ? stats.week?.sent : period === 'month' ? stats.month?.sent : stats.total?.sent) ?? 0;
   const replied = summary.replied ?? (period === 'week' ? stats.week?.replied : period === 'month' ? stats.month?.replied : stats.total?.replied) ?? 0;
-  const delivered = summary.delivered ?? (period === 'all' ? stats.total?.delivered : null);
+  const delivered = summary.deliveredContacts ?? (period === 'all' ? stats.total?.delivered : null);
 
   const cutoff =
     period === 'week'
@@ -115,8 +115,6 @@ export default function PerformancePage() {
 
   // Analytics payload is already period-filtered server-side.
   const attributedCount = summary.bookingsAfterWhatsApp ?? bookings.length;
-  const silentBookings =
-    summary.bookingsAfterWhatsAppSilent ?? bookings.filter((b) => !b.customerReplied).length;
   const deliveredMessages = summary.deliveredMessages;
   // For Week / Month the numerator follows the send cohort, not detection-dated hero bookings.
   const rateBookings = period === 'all' ? attributedCount : summary.bookingsFromPeriodSends;
@@ -169,9 +167,10 @@ export default function PerformancePage() {
   const bestWindow = useMemo(() => {
     let best = null;
     for (const [key, cell] of heat.cells.entries()) {
-      if (!best || cell.replyRate > best.replyRate) {
+      if (!best || cell.replyRate > best.replyRate ||
+        (cell.replyRate === best.replyRate && cell.sent > best.sent)) {
         const [day, hour] = key.split('|');
-        best = { day, hour: Number(hour), replyRate: cell.replyRate, sent: cell.sent || 0 };
+        best = { day, hour: Number(hour), replyRate: cell.replyRate, sent: cell.sent };
       }
     }
     return best;
@@ -207,7 +206,6 @@ export default function PerformancePage() {
         sent,
         delivered,
         replied,
-        silentBookings,
         byStation,
         bestWindow,
         bookingDataThrough,
@@ -234,6 +232,17 @@ export default function PerformancePage() {
           className="lg:!px-7 lg:!pt-6 lg:!pb-10"
         >
           <PerformanceSkeleton />
+        </div>
+      </>
+    );
+  }
+
+  if (analyticsQ.isError || statsQ.isError) {
+    return (
+      <>
+        <PageHeader title="Performance" subtitle="Outreach funnel, bookings, and send windows" actions={periodControls} />
+        <div style={{ padding: 28, fontSize: 13, color: 'var(--secondary-red)' }}>
+          Performance data could not be loaded. Refresh the page to try again.
         </div>
       </>
     );
@@ -440,8 +449,8 @@ export default function PerformancePage() {
                       <b style={{ color: '#000' }}>
                         {trackedBookingRate != null ? `${trackedBookingRate}%` : '—'}
                       </b>
-                      {' '}({fmt(rateBookings)} bookings from messages sent in this period ÷{' '}
-                      {fmt(deliveredMessages)} delivered messages).
+                      {' '}({fmt(rateBookings)} bookings from this send cohort ÷{' '}
+                      {fmt(deliveredMessages)} delivered message rows, including reminders).
                     </div>
                   </div>
 
@@ -552,9 +561,9 @@ export default function PerformancePage() {
           >
             <FunnelCell label="Sent" value={fmt(sent)} />
             <FunnelCell
-              label="Delivered"
+              label="Delivered contacts"
               value={fmt(delivered)}
-              hint={delivered != null && sent ? `${pct(delivered, sent)}% of sent` : undefined}
+              hint={delivered != null && sent ? `${pct(delivered, sent)}% of sent contacts` : undefined}
             />
             <FunnelCell
               label="Replied"
@@ -562,13 +571,9 @@ export default function PerformancePage() {
               hint={sent ? `${pct(replied, sent)}% of sent` : undefined}
             />
             <FunnelCell
-              label="Booked without replying"
-              value={fmt(silentBookings)}
-              hint={
-                attributedCount
-                  ? `${pct(silentBookings, attributedCount)}% of attributed`
-                  : undefined
-              }
+              label="Delivered messages"
+              value={fmt(deliveredMessages)}
+              hint="Read receipts + delivered · includes reminders"
             />
           </div>
         </div>
@@ -589,11 +594,12 @@ export default function PerformancePage() {
                 borderBottom: '1px solid var(--border-subtle)',
               }}
             >
-              <div style={{ fontSize: 14, fontWeight: 600 }}>When to send</div>
+              <div style={{ fontSize: 14, fontWeight: 600 }}>Observed send hours</div>
               <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
                 Reply rate by weekday and hour for{' '}
                 {period === 'week' ? 'this week' : period === 'month' ? 'this month' : 'all time'}.
-                Darker is better.
+                Darker means a higher observed reply rate. Only weekday hours with at least 10 sends are shown;
+                this does not change the sender schedule.
               </div>
             </div>
             <div style={{ padding: 20 }}>
@@ -630,12 +636,12 @@ export default function PerformancePage() {
                       {bestWindow.sent ? ` · n=${bestWindow.sent}` : ''}.
                     </>
                   ) : (
-                    <>Reply rates by send window — darker cells convert better.</>
+                    <>No weekday hour has 10 sends in this period yet.</>
                   )}
                 </div>
-                <Link to="/controls" className="rs-btn-fill" style={{ textDecoration: 'none', padding: '6px 12px', fontSize: 12 }}>
-                  Shift the schedule
-                </Link>
+                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                  Historical observation · no automatic scheduling change
+                </span>
               </div>
             </div>
           </div>
@@ -821,8 +827,10 @@ function FunnelCell({ label, value, hint }) {
 
 function HeatGrid({ heat }) {
   const { days, hours, cells, maxRate } = heat;
-  if (!days.length) {
-    return <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>No send-window data yet.</div>;
+  if (!cells.size) {
+    return <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+      No weekday hour reached 10 sends in this period. Historical reply rates are not yet reliable.
+    </div>;
   }
   return (
     <div
@@ -859,8 +867,8 @@ function HeatGrid({ heat }) {
                 key={`${day}-${hour}`}
                 title={
                   cell
-                    ? `${day} ${hour}:00 · ${(rate * 100).toFixed(0)}% reply`
-                    : `${day} ${hour}:00`
+                    ? `${day} ${hour}:00 · ${(rate * 100).toFixed(0)}% reply · ${cell.sent} sends`
+                    : `${day} ${hour}:00 · fewer than 10 sends`
                 }
                 style={{
                   display: 'flex',
@@ -886,12 +894,11 @@ function HeatGrid({ heat }) {
 
 function buildHeat(rows) {
   const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
-  // Mockup columns — map nearby send hours into these buckets
-  const hours = [9, 11, 13, 15, 17, 19];
-  const raw = new Map(); // day|hourExact -> rate
+  const raw = new Map(); // actual weekday/hour buckets from the analytics API
   for (const row of rows || []) {
     let dayRaw = row.weekday || row.day || row.dow;
-    let hour = Number(row.hour ?? row.sendHour);
+    const rawHour = row.hour ?? row.sendHour;
+    let hour = rawHour == null ? NaN : Number(rawHour);
     // Live analytics shape: { key: "Thu 10", replyRate: 5.5 }
     if ((dayRaw == null || Number.isNaN(hour)) && row.key) {
       const parts = String(row.key).trim().split(/\s+/);
@@ -917,29 +924,20 @@ function buildHeat(rows) {
         Friday: 'Fri',
       }[dayRaw] || String(dayRaw).slice(0, 3);
     if (!days.includes(day)) continue;
-    const replyRate = row.replyRate > 1 ? row.replyRate / 100 : row.replyRate || 0;
+    // The analytics endpoint returns percentage points (e.g. 0.5 means 0.5%).
+    const replyRate = Number(row.replyRate || 0) / 100;
     const key = `${day}|${hour}`;
     const prev = raw.get(key);
-    // Prefer higher-volume windows when colliding
     if (!prev || (row.sent || 0) >= (prev.sent || 0)) {
       raw.set(key, { replyRate, sent: row.sent || 0 });
     }
   }
 
-  const cells = new Map();
-  let maxRate = 0;
-  for (const day of days) {
-    for (const displayHour of hours) {
-      // Exact hour, then ±1 (so "10" lands under 09/11)
-      const candidates = [displayHour, displayHour - 1, displayHour + 1]
-        .map((h) => raw.get(`${day}|${h}`))
-        .filter(Boolean);
-      if (!candidates.length) continue;
-      const best = candidates.reduce((a, b) => (b.replyRate > a.replyRate ? b : a));
-      cells.set(`${day}|${displayHour}`, best);
-      maxRate = Math.max(maxRate, best.replyRate);
-    }
-  }
-
+  const cells = new Map([...raw.entries()]
+    .filter(([, cell]) => cell.sent >= 10));
+  const hours = [...new Set([...cells.keys()].map((key) => Number(key.split('|')[1])))]
+    .filter(Number.isInteger)
+    .sort((a, b) => a - b);
+  const maxRate = Math.max(0, ...[...cells.values()].map((cell) => cell.replyRate));
   return { days, hours, cells, maxRate };
 }
