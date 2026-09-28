@@ -152,7 +152,7 @@ export default function Shell({ children }) {
           }}
         >
           <img
-            src="/company-logo.png?v=blue-75"
+            src="/company-logo.png?v=mono-1"
             alt="TJ-Katsastus"
             style={{ width: 119, maxWidth: '100%', height: 'auto', display: 'block' }}
           />
