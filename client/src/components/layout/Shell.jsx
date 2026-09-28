@@ -152,9 +152,9 @@ export default function Shell({ children }) {
           }}
         >
           <img
-            src="/company-logo.png"
+            src="/company-logo.png?v=blue-75"
             alt="TJ-Katsastus"
-            style={{ width: 158, maxWidth: '100%', height: 'auto', display: 'block' }}
+            style={{ width: 119, maxWidth: '100%', height: 'auto', display: 'block' }}
           />
         </NavLink>
 
