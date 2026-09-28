@@ -225,9 +225,9 @@ export default function TodayPage() {
   const poolLoading = leadPoolQ.isLoading || leadPool?.status === 'running';
 
   const summary = analyticsQ.data?.summary;
-  const reactivationRate = summary?.reactivationRate ?? null;
-  const reactivatedContacts = summary?.bookedDeliveredContacts;
+  const trackedBookings = summary?.bookingsAfterWhatsApp;
   const deliveredContacts = summary?.deliveredContacts;
+  const trackedBookingRate = summary?.trackedBookingRate ?? null;
 
   return (
     <>
@@ -489,7 +489,7 @@ export default function TodayPage() {
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
             <div className="rs-panel" style={{ padding: 20 }}>
-              <div style={{ fontSize: 14, fontWeight: 600 }}>Reactivation</div>
+              <div style={{ fontSize: 14, fontWeight: 600 }}>Value of the programme</div>
               <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 3 }}>
                 All time ·{' '}
                 {valueLoading ? '…' : `${fmt(deliveredContacts)} delivered contacts`}
@@ -498,7 +498,7 @@ export default function TodayPage() {
                 <PanelSkeleton rows={3} />
               ) : analyticsQ.isError ? (
                 <div style={{ marginTop: 18, fontSize: 13, color: 'var(--secondary-red)' }}>
-                  Reactivation data could not be loaded. Refresh the page to try again.
+                  Booking-rate data could not be loaded. Refresh the page to try again.
                 </div>
               ) : (
                 <>
@@ -521,10 +521,10 @@ export default function TodayPage() {
                         gap: 6,
                       }}
                     >
-                      Reactivation rate
-                      <HelpTip label="About reactivation rate" side="bottom">
-                        Distinct delivered contacts whose non-baseline booking was first observed after outreach
-                        ÷ distinct delivered contacts. This is observational, not proof of causation.
+                      Tracked booking rate
+                      <HelpTip label="About tracked booking rate" side="bottom">
+                        The same tracked bookings shown on Performance divided by distinct delivered contacts.
+                        Each contact counts once even if they received reminders. This is observational.
                       </HelpTip>
                     </div>
                     <div
@@ -537,7 +537,7 @@ export default function TodayPage() {
                         fontVariantNumeric: 'tabular-nums',
                       }}
                     >
-                      {reactivationRate != null ? `${reactivationRate.toFixed(1)}%` : '—'}
+                      {trackedBookingRate != null ? `${trackedBookingRate.toFixed(1)}%` : '—'}
                     </div>
                     <div
                       style={{
@@ -547,13 +547,13 @@ export default function TodayPage() {
                         lineHeight: 1.45,
                       }}
                     >
-                      {fmt(reactivatedContacts)} booked contacts ÷ {fmt(deliveredContacts)}
+                      {fmt(trackedBookings)} tracked bookings ÷ {fmt(deliveredContacts)}
                       {' '}delivered contacts · all time.
                     </div>
                   </div>
                   <div style={{ marginTop: 14, fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                    One contact counts once, even if they received several reminders.
-                    Delivery and booking detection can update at different times.
+                    Same booking count as Performance. Delivered contacts are counted once;
+                    reminders do not increase the denominator.
                   </div>
                   <Link
                     to="/performance"
@@ -873,7 +873,7 @@ export default function TodayPage() {
             <PanelSkeleton rows={2} />
           ) : analyticsQ.isError ? (
             <div style={{ fontSize: 13, color: 'var(--secondary-red)' }}>
-              Reactivation data could not be loaded. Refresh the page to try again.
+              Booking-rate data could not be loaded. Refresh the page to try again.
             </div>
           ) : (
             <>
@@ -888,10 +888,10 @@ export default function TodayPage() {
                   gap: 6,
                 }}
               >
-                Reactivation rate
-                <HelpTip label="About reactivation rate" side="bottom">
-                  Distinct delivered contacts with a non-baseline booking first observed after outreach
-                  ÷ distinct delivered contacts. Observational, not causal.
+                Tracked booking rate
+                <HelpTip label="About tracked booking rate" side="bottom">
+                  The same tracked bookings shown on Performance ÷ distinct delivered contacts.
+                  Reminders do not count as additional contacts. Observational, not causal.
                 </HelpTip>
               </div>
               <div
@@ -904,10 +904,10 @@ export default function TodayPage() {
                   fontVariantNumeric: 'tabular-nums',
                 }}
               >
-                {reactivationRate != null ? `${reactivationRate.toFixed(1)}%` : '—'}
+                {trackedBookingRate != null ? `${trackedBookingRate.toFixed(1)}%` : '—'}
               </div>
               <div style={{ fontSize: 12, color: 'rgba(0,0,0,.55)', marginTop: 8, lineHeight: 1.45 }}>
-                {fmt(reactivatedContacts)} booked contacts ÷ {fmt(deliveredContacts)} delivered contacts · all time.
+                {fmt(trackedBookings)} tracked bookings ÷ {fmt(deliveredContacts)} delivered contacts · all time.
               </div>
               <Link
                 to="/performance"

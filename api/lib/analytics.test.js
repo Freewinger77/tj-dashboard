@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { countDeliveredMessages, reactivationRate, trackedBookingRate } from './booking-rate.js';
+import { countDeliveredMessages, normalizePhone, trackedBookingRate } from './booking-rate.js';
 
 const eligible = new Set(['358401234567']);
 const messages = [
@@ -19,12 +19,16 @@ test('period denominator uses message sent date and stable row IDs', () => {
   assert.equal(countDeliveredMessages([...messages, messages[1]], eligible), 2);
 });
 
-test('overall tracked booking percentage uses delivered message rows', () => {
-  assert.equal(trackedBookingRate(483, 1688), 28.6);
+test('all-time tracked booking rate uses the displayed bookings and delivered contacts', () => {
+  assert.equal(trackedBookingRate(483, 1374), 35.2);
   assert.equal(trackedBookingRate(0, 0), null);
 });
 
-test('reactivation counts distinct booked contacts over delivered contacts, not messages', () => {
-  assert.equal(reactivationRate(400, 1374), 29.1);
-  assert.equal(reactivationRate(0, 0), null);
+test('reminders do not increase a contact-based rate denominator', () => {
+  const deliveredContacts = new Set(messages
+    .filter((message) => ['read', 'delivered'].includes(message.status))
+    .map((message) => normalizePhone(message.number))
+    .filter((phone) => eligible.has(phone)));
+  assert.equal(deliveredContacts.size, 1);
+  assert.equal(trackedBookingRate(1, deliveredContacts.size), 100);
 });

@@ -15,7 +15,7 @@ const STRINGS = {
     pauseAll: 'Pause all outreach',
     needsYou: 'Needs you',
     thisWeek: 'This week',
-    valueOfProgramme: 'Reactivation',
+    valueOfProgramme: 'Value of the programme',
     outreachRunning: 'Outreach is running',
     outreachPaused: 'Outreach is paused',
     goodMorning: 'Good morning',

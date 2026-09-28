@@ -23,7 +23,7 @@ function dateLabel(value) {
 /** Export only tracked bookings, delivery-based rates, and operational context. */
 export function exportPerformanceReport(snapshot) {
   const {
-    periodLabel, periodWindow, attributedCount, rateBookings, deliveredMessages,
+    periodLabel, periodWindow, attributedCount, rateBookings, deliveredContacts,
     trackedBookingRate, sent, delivered, replied,
     byStation = [], bestWindow, bookingDataThrough, captureStale,
     generatedAt = new Date(),
@@ -79,7 +79,7 @@ export function exportPerformanceReport(snapshot) {
   doc.line(margin, y, width - margin, y);
   y += 24;
 
-  heading('Bookings from outreach', 'Booking detections follow the selected period; the rate follows messages sent in that period.');
+  heading('Bookings from outreach', 'Tracked booking rate = tracked bookings / distinct delivered contacts; week and month rates follow the send cohort.');
   nextPage(104);
   doc.setFillColor(...COLORS.pale);
   doc.roundedRect(margin, y, contentWidth, 88, 8, 8, 'F');
@@ -96,15 +96,15 @@ export function exportPerformanceReport(snapshot) {
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8);
   doc.setTextColor(...COLORS.muted);
-  doc.text(`${fmt(rateBookings)} bookings / ${fmt(deliveredMessages)} delivered messages`, margin + contentWidth / 2, y + 73);
+  doc.text(`${fmt(rateBookings)} bookings / ${fmt(deliveredContacts)} delivered contacts`, margin + contentWidth / 2, y + 73);
   y += 110;
 
-  heading('Outreach funnel', 'Delivered contacts counts distinct people; delivered messages counts message rows, including reminders and read receipts.');
+  heading('Outreach funnel', 'Delivered contacts are counted once, including contacts with read receipts or multiple reminders.');
   const metrics = [
     ['Sent conversations', fmt(sent)],
     ['Delivered conversations', fmt(delivered)],
     ['Replied', fmt(replied)],
-    ['Delivered messages', fmt(deliveredMessages)],
+    ['Tracked bookings', fmt(attributedCount)],
   ];
   nextPage(70);
   const cellWidth = contentWidth / metrics.length;
@@ -123,13 +123,14 @@ export function exportPerformanceReport(snapshot) {
   });
   y += 82;
 
-  heading('By station', 'Bookings from period outreach / delivered messages; message-to-station matching requires an unambiguous phone.');
+  heading('By station', 'Tracked bookings by outreach station / distinct delivered contacts in that station.');
   nextPage(30);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(9);
   doc.setTextColor(...COLORS.muted);
   doc.text('STATION', margin + 8, y);
-  doc.text('SENT', margin + contentWidth * 0.62, y, { align: 'right' });
+  doc.text('DELIVERED', margin + contentWidth * 0.55, y, { align: 'right' });
+  doc.text('BOOKINGS', margin + contentWidth * 0.77, y, { align: 'right' });
   doc.text('RATE', width - margin - 8, y, { align: 'right' });
   y += 12;
   doc.setDrawColor(...COLORS.border);
@@ -147,7 +148,8 @@ export function exportPerformanceReport(snapshot) {
     doc.setTextColor(...COLORS.ink);
     const name = String(station.station_name || station.station || '—');
     doc.text(name.slice(0, 36), margin + 8, y);
-    doc.text(fmt(station.contacted), margin + contentWidth * 0.62, y, { align: 'right' });
+    doc.text(fmt(station.deliveredContacts), margin + contentWidth * 0.55, y, { align: 'right' });
+    doc.text(fmt(station.bookings), margin + contentWidth * 0.77, y, { align: 'right' });
     doc.text(station.deliveredBookingRate == null ? '—' : `${Number(station.deliveredBookingRate).toFixed(1)}%`, width - margin - 8, y, { align: 'right' });
     y += 18;
     doc.setDrawColor(...COLORS.border);

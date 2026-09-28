@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { supabase, fetchAll } from '../lib/supabase.js';
 import { helsinkiMidnightUTC, periodCutoffMs, startOfHelsinkiMonth } from '../lib/helsinki.js';
-import { countDeliveredMessages, percent, reactivationRate, trackedBookingRate } from '../lib/booking-rate.js';
+import { countDeliveredMessages, normalizePhone, percent, trackedBookingRate } from '../lib/booking-rate.js';
 
 const router = Router();
 
@@ -68,23 +68,15 @@ async function buildAnalytics(period = 'all') {
     .sort((a, b) => new Date(a.last_outbound_at) - new Date(b.last_outbound_at));
   const statusByNumber = buildStatusMap(allStatuses);
   const rows = sessions.map((session) => formatSession(session, statusByNumber));
-  // A delivered message can advance to "read"; count it once using its row ID.
-  // Only statuses for eligible outreach customers belong in the booking-rate denominator.
+  // Keep the denominator in the same send cohort as the booking-rate numerator.
+  // Read receipts also qualify as delivered; reminders never add a second contact.
   const eligibleNumbers = new Set(
-    allSessions
-      .filter((session) => session.customer_id && session.customer_id !== 999999)
-      .filter((session) => session.stop_reason !== 'business_customer')
-      .map((session) => normalizePhone(session.number))
-      .filter(Boolean)
+    sessions.map((session) => normalizePhone(session.number)).filter(Boolean)
   );
-  const deliveredMessages = countDeliveredMessages(allStatuses, eligibleNumbers, cutoff);
   const deliveredNumbers = new Set(allStatuses.filter((status) => {
     if (!['delivered', 'read'].includes(String(status.status || '').toLowerCase())) return false;
     const phone = normalizePhone(status.number);
-    if (!eligibleNumbers.has(phone)) return false;
-    if (!cutoff) return true;
-    const sentMs = Date.parse(status.sent_at || '');
-    return Number.isFinite(sentMs) && sentMs >= cutoff;
+    return eligibleNumbers.has(phone);
   }).map((status) => normalizePhone(status.number)));
   const base = buildBaseStats(rows);
   const activeRows = rows.filter((row) => row.sentMs >= CAMPAIGN_RESTART_AT);
@@ -110,17 +102,8 @@ async function buildAnalytics(period = 'all') {
     const ts = Date.parse(booking.whatsappSentAt || 0);
     return Number.isFinite(ts) && ts >= cutoff;
   });
-  const bookedDeliveredContacts = new Set(bookingsFromPeriodSends
-    .filter((booking) => {
-      if (booking.isBaseline) return false;
-      const sentMs = Date.parse(booking.whatsappSentAt || '');
-      const detectedMs = Date.parse(booking.bookingDetectedAt || '');
-      return Number.isFinite(sentMs) && Number.isFinite(detectedMs) && detectedMs >= sentMs;
-    })
-    .map((booking) => normalizePhone(booking.number))
-    .filter((phone) => deliveredNumbers.has(phone))).size;
   const reminders = buildReminderSummary(sessions, allStatuses, snapshotsByReg);
-  const byStation = buildByStation(rows, bookingsFromPeriodSends, allStatuses, cutoff, stationNames);
+  const byStation = buildByStation(rows, bookingsFromPeriodSends, deliveredNumbers, stationNames);
 
   const repliedBookings = bookings.filter((booking) => booking.customerReplied).length;
   const matchedBookings = bookings.filter((booking) => booking.calendarMatched).length;
@@ -182,12 +165,14 @@ async function buildAnalytics(period = 'all') {
     summary: {
       contacted: base.contacted,
       weekDeliveredMessages: period === 'all'
-        ? countDeliveredMessages(allStatuses, eligibleNumbers, periodCutoffMs('week'))
+        ? countDeliveredMessages(allStatuses, new Set(allSessions.filter((session) => {
+            const sentMs = Date.parse(session.last_outbound_at || '');
+            return session.customer_id && session.customer_id !== 999999 &&
+              Number.isFinite(sentMs) && sentMs >= periodCutoffMs('week');
+          }).map((session) => normalizePhone(session.number))), periodCutoffMs('week'))
         : null,
       delivered: deliveredNumbers.size,
       deliveredContacts: deliveredNumbers.size,
-      bookedDeliveredContacts,
-      reactivationRate: reactivationRate(bookedDeliveredContacts, deliveredNumbers.size),
       read: base.read,
       replied: base.replied,
       botBooked,
@@ -199,12 +184,11 @@ async function buildAnalytics(period = 'all') {
       highConfidenceBookings: matchedBookings,
       reviewBookings: bookings.length - matchedBookings,
       totalAttributedBookings: bookings.length,
-      deliveredMessages,
-      // All-time uses the same displayed booking numerator as Today; scoped rates
-      // use bookings from outreach sent in the matching period.
+      // The all-time numerator is exactly the displayed tracked-bookings count.
+      // Scoped rates use the corresponding send cohort and distinct delivered contacts.
       trackedBookingRate: trackedBookingRate(
         (cutoff ? bookingsFromPeriodSends : bookings).length,
-        deliveredMessages
+        deliveredNumbers.size
       ),
       priorMonthAttributed,
       currentSent: activeBase.contacted,
@@ -224,7 +208,7 @@ async function buildAnalytics(period = 'all') {
       deliveredReplyRate: percent(base.replied, deliveredNumbers.size),
       // Conversion of period outreach (send-aligned), not detection-dated attributed count.
       attributedBookingRate: percent(bookingsFromPeriodSends.length, base.contacted),
-      deliveredBookingRate: trackedBookingRate(bookingsFromPeriodSends.length, deliveredMessages),
+      deliveredBookingRate: trackedBookingRate(bookingsFromPeriodSends.length, deliveredNumbers.size),
       bookingsFromPeriodSends: bookingsFromPeriodSends.length,
     },
     byStation,
@@ -309,11 +293,10 @@ function buildBookings(sessions, snapshotsByReg, stationNames) {
       bookedWeek: matchedSnap?.week ?? null,
       isBaseline: Boolean(matchedSnap?.is_baseline),
       messagedAfterRestart: Number.isFinite(sentMs) && sentMs >= CAMPAIGN_RESTART_AT,
-      station_id: matchedSnap?.station_id ?? session.station_id ?? null,
-      station:
-        matchedSnap?.station_name ||
-        stationNames[session.station_id] ||
-        '',
+      // Station rates belong to the outreach session's station, not the
+      // calendar location where the vehicle eventually booked.
+      station_id: session.station_id ?? null,
+      station: stationNames[session.station_id] || 'Unassigned station',
       stopReason: session.stop_reason || 'active',
       campaignType: session.campaign_type || outbound.campaign_type || '',
       sendDayHour: dayHourKey(sentAt),
@@ -322,17 +305,17 @@ function buildBookings(sessions, snapshotsByReg, stationNames) {
   return bookings.sort((a, b) => new Date(b.appointmentAt || 0) - new Date(a.appointmentAt || 0));
 }
 
-function buildByStation(rows, bookings, statuses, cutoff, stationNames) {
+function buildByStation(rows, bookings, deliveredNumbers, stationNames) {
   const map = new Map();
   const numbersByStation = new Map();
-  for (const [id, name] of Object.entries(stationNames)) {
+  for (const [id, name] of [...Object.entries(stationNames), ['0', 'Unassigned station']]) {
     const stationId = Number(id);
     map.set(stationId, {
       station_id: stationId,
       station_name: name,
       contacted: 0,
       delivered: 0,
-      deliveredMessages: 0,
+      deliveredContacts: 0,
       replied: 0,
       bookings: 0,
       due_soon_contacted: 0,
@@ -342,33 +325,49 @@ function buildByStation(rows, bookings, statuses, cutoff, stationNames) {
   }
 
   for (const row of rows) {
-    const sid = Number(row.station_id);
-    if (!map.has(sid)) continue;
+    const sid = map.has(Number(row.station_id)) && row.station_id != null
+      ? Number(row.station_id)
+      : 0;
     const station = map.get(sid);
     station.contacted += 1;
     if (row.delivered) station.delivered += 1;
     if (row.replied) station.replied += 1;
     if (row.campaignType === 'due_soon') station.due_soon_contacted += 1;
-    numbersByStation.get(sid).add(normalizePhone(row.number));
   }
 
+  // Assign repeat contacts to the most recent eligible outreach station in
+  // the send cohort. Apply the same mapping to bookings and delivered contacts
+  // so each contact contributes to only one station's denominator.
+  const stationByPhone = new Map();
+  for (const row of [...rows].sort((a, b) => a.sentMs - b.sentMs)) {
+    const phone = normalizePhone(row.number);
+    if (phone) {
+      const stationId = Number(row.station_id);
+      stationByPhone.set(phone, map.has(stationId) && row.station_id != null ? stationId : 0);
+    }
+  }
+  for (const phone of deliveredNumbers) {
+    const sid = stationByPhone.get(phone);
+    if (sid != null) numbersByStation.get(sid).add(phone);
+  }
   for (const [sid, numbers] of numbersByStation) {
-    map.get(sid).deliveredMessages = countDeliveredMessages(statuses, numbers, cutoff);
+    map.get(sid).deliveredContacts = numbers.size;
   }
 
   for (const booking of bookings) {
-    const sid = Number(booking.station_id);
-    if (!map.has(sid)) continue;
+    const sid = stationByPhone.get(normalizePhone(booking.number));
+    if (sid == null || !map.has(sid)) continue;
     const station = map.get(sid);
     station.bookings += 1;
     if (booking.campaignType === 'due_soon') station.due_soon_bookings += 1;
   }
 
   return [...map.values()]
+    .filter((station) => station.station_id !== 0 || station.contacted || station.bookings || station.deliveredContacts)
     .map((station) => ({
       ...station,
-      bookingRate: trackedBookingRate(station.bookings, station.deliveredMessages),
-      deliveredBookingRate: trackedBookingRate(station.bookings, station.deliveredMessages),
+      bookingRate: trackedBookingRate(station.bookings, station.deliveredContacts),
+      deliveredBookingRate: trackedBookingRate(station.bookings, station.deliveredContacts),
       dueSoonBookingRate: percent(station.due_soon_bookings, station.due_soon_contacted),
       replyRate: percent(station.replied, station.contacted),
     }))
@@ -580,12 +579,6 @@ function parseRaw(rawData) {
 
 function normalizeRegistration(value) {
   return String(value || '').toUpperCase().replace(/\s+/g, '').trim();
-}
-
-function normalizePhone(value) {
-  let phone = String(value || '').replace(/[^0-9]/g, '');
-  if (phone.startsWith('0')) phone = `358${phone.slice(1)}`;
-  return phone;
 }
 
 function formatApptWeek(value) {

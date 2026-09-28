@@ -1,6 +1,7 @@
-function normalizePhone(value) {
+export function normalizePhone(value) {
   let phone = String(value || '').replace(/[^0-9]/g, '');
-  if (phone.startsWith('0')) phone = `358${phone.slice(1)}`;
+  if (phone.startsWith('00')) phone = phone.slice(2);
+  else if (phone.startsWith('0')) phone = `358${phone.slice(1)}`;
   return phone;
 }
 
@@ -20,11 +21,6 @@ export function percent(numerator, denominator) {
   return Math.round((numerator * 1000) / denominator) / 10;
 }
 
-export function trackedBookingRate(bookings, deliveredMessages) {
-  return deliveredMessages > 0 ? percent(bookings, deliveredMessages) : null;
-}
-
-/** A contact is reactivated when a delivered outreach conversation led to a tracked booking. */
-export function reactivationRate(bookedContacts, deliveredContacts) {
-  return deliveredContacts > 0 ? percent(bookedContacts, deliveredContacts) : null;
+export function trackedBookingRate(bookings, deliveredContacts) {
+  return deliveredContacts > 0 ? percent(bookings, deliveredContacts) : null;
 }

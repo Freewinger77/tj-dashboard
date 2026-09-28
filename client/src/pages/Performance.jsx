@@ -115,8 +115,8 @@ export default function PerformancePage() {
 
   // Analytics payload is already period-filtered server-side.
   const attributedCount = summary.bookingsAfterWhatsApp ?? bookings.length;
-  const deliveredMessages = summary.deliveredMessages;
-  // For Week / Month the numerator follows the send cohort, not detection-dated hero bookings.
+  const deliveredContacts = summary.deliveredContacts;
+  // Week/Month rate uses a send-aligned cohort, while the headline is detection-dated.
   const rateBookings = period === 'all' ? attributedCount : summary.bookingsFromPeriodSends;
   const trackedBookingRate = summary.trackedBookingRate ?? null;
 
@@ -201,7 +201,7 @@ export default function PerformancePage() {
         periodWindow: periodWindowLabel(period),
         attributedCount,
         rateBookings,
-        deliveredMessages,
+        deliveredContacts,
         trackedBookingRate,
         sent,
         delivered,
@@ -449,8 +449,8 @@ export default function PerformancePage() {
                       <b style={{ color: '#000' }}>
                         {trackedBookingRate != null ? `${trackedBookingRate}%` : '—'}
                       </b>
-                      {' '}({fmt(rateBookings)} bookings from this send cohort ÷{' '}
-                      {fmt(deliveredMessages)} delivered message rows, including reminders).
+                      {' '}({fmt(rateBookings)} tracked bookings from this send cohort ÷{' '}
+                      {fmt(deliveredContacts)} distinct delivered contacts).
                     </div>
                   </div>
 
@@ -571,9 +571,9 @@ export default function PerformancePage() {
               hint={sent ? `${pct(replied, sent)}% of sent` : undefined}
             />
             <FunnelCell
-              label="Delivered messages"
-              value={fmt(deliveredMessages)}
-              hint="Read receipts + delivered · includes reminders"
+              label="Tracked bookings"
+              value={fmt(attributedCount)}
+              hint="Bookings detected in selected period"
             />
           </div>
         </div>
@@ -659,7 +659,8 @@ export default function PerformancePage() {
               >
                 By station
                 <HelpTip label="About station rates" side="left">
-                  Tracked bookings from messages sent in this period ÷ delivered message rows at each station.
+                  Tracked bookings attributed to each outreach station ÷ distinct delivered contacts at that station.
+                  Week and Month rates use messages sent in the selected period.
                 </HelpTip>
               </div>
               <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
@@ -669,7 +670,7 @@ export default function PerformancePage() {
             <div
               style={{
                 display: 'grid',
-                gridTemplateColumns: 'minmax(0,1fr) 60px 72px',
+                gridTemplateColumns: 'minmax(0,1fr) 78px 80px 72px',
                 gap: 8,
                 padding: '10px 20px',
                 background: 'var(--surface-sunken)',
@@ -680,21 +681,23 @@ export default function PerformancePage() {
               }}
             >
               <span>Station</span>
-              <span style={{ textAlign: 'right' }}>Sent</span>
+              <span style={{ textAlign: 'right' }}>Delivered</span>
+              <span style={{ textAlign: 'right' }}>Bookings</span>
               <span style={{ textAlign: 'right' }}>Rate %</span>
             </div>
-            {(Array.isArray(byStation) ? byStation : []).slice(0, 8).map((row) => {
+            {(Array.isArray(byStation) ? byStation : []).map((row) => {
               const name = row.station_name || row.station || '—';
-              const contacted = row.contacted || row.leads_contacted || 0;
+              const delivered = row.deliveredContacts ?? 0;
+              const attributed = row.bookings ?? 0;
               const rateValue = row.deliveredBookingRate;
               const rateLabel = rateValue != null ? `${Number(rateValue).toFixed(1)}%` : '—';
               const paused = pausedIds.has(String(row.station_id));
               return (
                 <div
-                  key={row.station_id || name}
+                  key={row.station_id ?? name}
                   style={{
                     display: 'grid',
-                    gridTemplateColumns: 'minmax(0,1fr) 60px 72px',
+                    gridTemplateColumns: 'minmax(0,1fr) 78px 80px 72px',
                     gap: 8,
                     padding: '13px 20px',
                     borderBottom: '1px solid var(--border-subtle)',
@@ -708,7 +711,10 @@ export default function PerformancePage() {
                     {paused ? ' · paused' : ''}
                   </span>
                   <span style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                    {fmt(contacted)}
+                    {fmt(delivered)}
+                  </span>
+                  <span style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                    {fmt(attributed)}
                   </span>
                   <span
                     style={{
